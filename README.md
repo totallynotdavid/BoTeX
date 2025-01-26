@@ -1,8 +1,8 @@
 # BoTeX
 
-Un bot simple de WhatsApp que convierte fórmulas matemáticas en $\LaTeX$ a imágenes. Perfecto para compartir ecuaciones en un chat grupal de estudiantes.
+Un bot simple de WhatsApp que convierte fórmulas matemáticas en LaTeX a imágenes. Perfecto para compartir ecuaciones en un chat grupal de estudiantes.
 
-## ⚙️ Instalación
+## Instalación
 
 Antes de comenzar, necesitarás Go, TeX Live e ImageMagick. Puedes instalarlos con los siguientes comandos:
 
@@ -38,7 +38,7 @@ export CGO_ENABLED=1
 go run .
 ```
 
-## 📱 Uso
+## Cómo usar
 
 1. **Escanea el QR** que aparecerá en la terminal con WhatsApp cuando ejecutes <kbd>go run .</kbd>
 2. Envía un mensaje con el formato:
@@ -59,7 +59,7 @@ go run .
 !latex \int_{a}^{b} f(x)\,dx = F(b) - F(a)
 ```
 
-## 🚨 Solución de problemas
+## Solución de problemas
 
 Si encuentras errores:
 
