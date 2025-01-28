@@ -2,8 +2,6 @@ name: CodeQL
 
 on:
     workflow_dispatch:
-    push:
-        branches: [master]
     schedule:
         - cron: '0 11 * * 5' # Viernes a las 11:00
 
@@ -21,16 +19,12 @@ jobs:
                 language: ['go']
 
         steps:
-            - name: Inicializar Github Action
-              uses: actions/checkout@v3
+            - uses: actions/checkout@v3
 
-            - name: Inicializar CodeQL
-              uses: github/codeql-action/init@v3
+            - uses: github/codeql-action/init@v3
               with:
                   languages: ${{ matrix.language }}
 
-            - name: Autoconstruir
-              uses: github/codeql-action/autobuild@v3
+            - uses: github/codeql-action/autobuild@v3
 
-            - name: Análisis CodeQL
-              uses: github/codeql-action/analyze@v3
+            - uses: github/codeql-action/analyze@v3
