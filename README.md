@@ -1,12 +1,14 @@
 # BoTeX
 
-Un bot simple de WhatsApp que convierte fórmulas matemáticas en LaTeX a imágenes. Perfecto para compartir ecuaciones en un chat grupal de estudiantes.
+[![CodeQL](https://github.com/totallynotdavid/BoTeX/actions/workflows/codeql.yml/badge.svg)](https://github.com/totallynotdavid/BoTeX/actions/workflows/codeql.yml)
 
-## Instalación
+BoTeX is a WhatsApp bot that renders LaTeX equations into images. I created this project while learning Go, drawing inspiration from how [matterbridge](https://github.com/42wim/matterbridge) implements WhatsApp integration using the [whatsmeow](https://github.com/tulir/whatsmeow) library. While it currently has a limited set of commands (`!latex` for rendering equations and `!help` for viewing available commands), it serves as a simple example of building a WhatsApp bot in Go.
 
-Antes de comenzar, necesitarás Go, TeX Live e ImageMagick. Puedes instalarlos con los siguientes comandos:
+## Getting Started
 
-1. Instalar Go (si no lo tienes)
+**Setting up BoTeX requires a few tools**: [Go](https://golang.org/dl/) for running the bot, [TeX Live](https://www.tug.org/texlive/quickinstall.html) for rendering equations, and [ImageMagick](https://imagemagick.org/script/download.php) for image processing. Let's walk through the setup process.
+
+First, you'll need Go installed (we're using version 1.23.5). If you don't have it already, here's how to get it running:
 
 ```bash
 curl -OL https://go.dev/dl/go1.23.5.linux-amd64.tar.gz
@@ -15,7 +17,10 @@ echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.profile
 source ~/.profile
 ```
 
-2. Instalar TeX Live (completo)
+> [!NOTE]
+> These commands download the Go tarball, extract it to `/usr/local`, and add the Go binary directory to your `PATH`. You can check the installation with `go version`.
+
+Next up is TeX Live, which handles the actual equation rendering. The installation takes a while, but it's straightforward:
 
 ```bash
 sudo apt-get install perl
@@ -28,49 +33,52 @@ echo 'export PATH=$PATH:/usr/local/texlive/2024/bin/x86_64-linux' >> ~/.profile
 source ~/.profile
 ```
 
-3. Clonar y ejecutar el bot
+> [!NOTE]  
+> You may need to install LaTeX packages using `tlmgr install <package>`. For our purposes, `amsmath`, `amsfonts`, `physics` and `bm` are needed.
+
+Finally, let's get the bot up and running. You'll need some build tools and the bot code itself:
 
 ```bash
+# Install required system packages
+sudo apt-get install gcc build-essential
+
+# Get the bot (either clone with git or download ZIP from GitHub)
 git clone https://github.com/totallynotdavid/BoTeX
 cd BoTeX
-sudo apt-get install gcc build-essential
+
+# Run the bot
 export CGO_ENABLED=1
 go run .
 ```
 
-## Cómo usar
+## Using the Bot
 
-1. **Escanea el QR** que aparecerá en la terminal con WhatsApp cuando ejecutes <kbd>go run .</kbd>
-2. Envía un mensaje con el formato:
+Once you've got everything installed, using the bot is simple. Run it with `go run .` and you'll see a QR code in your terminal - scan this with WhatsApp to link the bot. After that, you can start rendering equations by sending messages in this format:
 
-   ```
-   !latex <tu_ecuación>
-   ```
-
-3. Recibirás una imagen con tu ecuación renderizada
-
-**Ejemplos:**
-
+```txt
+!latex <your_equation>
 ```
+
+For example, try these:
+
+```txt
 !latex x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
 ```
 
-```
+or
+
+```txt
 !latex \int_{a}^{b} f(x)\,dx = F(b) - F(a)
 ```
 
-## Solución de problemas
+## When Things Go Wrong
 
-Si encuentras errores:
+If something's not working, it's usually one of three things:
 
-```bash
-# Verificar instalación de pdflatex
-pdflatex --version
+1. The installation didn't complete properly - run `pdflatex --version` and `convert --version` to check if TeX Live and ImageMagick are installed correctly.
+2. `whatsmeow` have known issues regarding some messages showing up only on WhatsApp web but not on a phone. If you're not seeing messages, try seeing if they show up on WhatsApp web.
+3. The Go dependencies need updating - try `go clean -modcache` followed by `go get -u`.
 
-# Verificar instalación de ImageMagick
-convert --version
+If you're running into an issue that isn't solved by checking these, feel free to [open an issue](https://github.com/totallynotdavid/BoTeX/issues) on GitHub. I'm always happy to help get things running smoothly.
 
-# Reinstalar dependencias
-go clean -modcache
-go get -u
-```
+This project is open source, so feel free to use it, modify it, or suggest improvements. Thanks to the teams behind whatsmeow and matterbridge for their excellent work that made this project possible!
