@@ -1,0 +1,36 @@
+name: CodeQL
+
+on:
+    workflow_dispatch:
+    push:
+        branches: [master]
+    schedule:
+        - cron: '0 11 * * 5' # Viernes a las 11:00
+
+jobs:
+    analyze:
+        runs-on: ubuntu-latest
+        permissions:
+            actions: read
+            contents: read
+            security-events: write
+
+        strategy:
+            fail-fast: false
+            matrix:
+                language: ['golang']
+
+        steps:
+            - name: Inicializar Github Action
+              uses: actions/checkout@v3
+
+            - name: Inicializar CodeQL
+              uses: github/codeql-action/init@v2
+              with:
+                  languages: ${{ matrix.language }}
+
+            - name: Autoconstruir
+              uses: github/codeql-action/autobuild@v2
+
+            - name: Análisis CodeQL
+              uses: github/codeql-action/analyze@v2
