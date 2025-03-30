@@ -132,7 +132,115 @@ func (mycli *MyClient) eventHandler(evt interface{}) {
 			fmt.Println("Sending to sender:", recipient)
 		}
 
+		var err error
+		var stickerMsg *waProto.StickerMessage
+		var imgWebP []byte
+		var resp whatsmeow.UploadResponse
+
 		if msg == "" {
+			if imageMessage := newMessage.GetImageMessage(); imageMessage != nil {
+				caption := imageMessage.GetCaption()
+				if strings.HasPrefix(caption, "!latex") {
+					latexCode := strings.TrimSpace(strings.TrimPrefix(caption, "!latex"))
+					if latexCode == "" {
+						return
+					}
+					imgWebP, err = transformLatexToImage(latexCode)
+					if err != nil {
+						fmt.Println("Error generating image:", err)
+						return
+					}
+					resp, err = mycli.WAClient.Upload(context.Background(), imgWebP, whatsmeow.MediaImage)
+					if err != nil {
+						fmt.Println("Error uploading sticker:", err)
+						return
+					}
+					stickerMsg = &waProto.StickerMessage{
+						Mimetype:      proto.String("image/webp"),
+						URL:           &resp.URL,
+						DirectPath:    &resp.DirectPath,
+						MediaKey:      resp.MediaKey,
+						FileEncSHA256: resp.FileEncSHA256,
+						FileSHA256:    resp.FileSHA256,
+					}
+					_, err = mycli.WAClient.SendMessage(context.Background(), recipient, &waProto.Message{
+						StickerMessage: stickerMsg,
+					})
+					if err != nil {
+						fmt.Println("Error sending sticker:", err)
+					} else {
+						fmt.Println("Sticker sent successfully")
+					}
+				}
+			} else if documentMessage := newMessage.GetDocumentMessage(); documentMessage != nil {
+				caption := documentMessage.GetCaption()
+				if strings.HasPrefix(caption, "!latex") {
+					latexCode := strings.TrimSpace(strings.TrimPrefix(caption, "!latex"))
+					if latexCode == "" {
+						return
+					}
+					imgWebP, err = transformLatexToImage(latexCode)
+					if err != nil {
+						fmt.Println("Error generating image:", err)
+						return
+					}
+					resp, err = mycli.WAClient.Upload(context.Background(), imgWebP, whatsmeow.MediaImage)
+					if err != nil {
+						fmt.Println("Error uploading sticker:", err)
+						return
+					}
+					stickerMsg = &waProto.StickerMessage{
+						Mimetype:      proto.String("image/webp"),
+						URL:           &resp.URL,
+						DirectPath:    &resp.DirectPath,
+						MediaKey:      resp.MediaKey,
+						FileEncSHA256: resp.FileEncSHA256,
+						FileSHA256:    resp.FileSHA256,
+					}
+					_, err = mycli.WAClient.SendMessage(context.Background(), recipient, &waProto.Message{
+						StickerMessage: stickerMsg,
+					})
+					if err != nil {
+						fmt.Println("Error sending sticker:", err)
+					} else {
+						fmt.Println("Sticker sent successfully")
+					}
+				}
+			} else if extendedTextMessage := newMessage.GetExtendedTextMessage(); extendedTextMessage != nil {
+				text := extendedTextMessage.GetText()
+				if strings.HasPrefix(text, "!latex") {
+					latexCode := strings.TrimSpace(strings.TrimPrefix(text, "!latex"))
+					if latexCode == "" {
+						return
+					}
+					imgWebP, err = transformLatexToImage(latexCode)
+					if err != nil {
+						fmt.Println("Error generating image:", err)
+						return
+					}
+					resp, err = mycli.WAClient.Upload(context.Background(), imgWebP, whatsmeow.MediaImage)
+					if err != nil {
+						fmt.Println("Error uploading sticker:", err)
+						return
+					}
+					stickerMsg = &waProto.StickerMessage{
+						Mimetype:      proto.String("image/webp"),
+						URL:           &resp.URL,
+						DirectPath:    &resp.DirectPath,
+						MediaKey:      resp.MediaKey,
+						FileEncSHA256: resp.FileEncSHA256,
+						FileSHA256:    resp.FileSHA256,
+					}
+					_, err = mycli.WAClient.SendMessage(context.Background(), recipient, &waProto.Message{
+						StickerMessage: stickerMsg,
+					})
+					if err != nil {
+						fmt.Println("Error sending sticker:", err)
+					} else {
+						fmt.Println("Sticker sent successfully")
+					}
+				}
+			}
 			return
 		}
 
