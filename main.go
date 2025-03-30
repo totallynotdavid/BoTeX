@@ -19,6 +19,8 @@ import (
 
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"google.golang.org/protobuf/proto"
+
+	"go.mau.fi/whatsmeow/types"
 )
 
 const latexTemplate = `
@@ -115,6 +117,21 @@ func (mycli *MyClient) eventHandler(evt interface{}) {
 		fmt.Println("Received message (GetConversation):", msg)
 		fmt.Println("Message from (Sender):", v.Info.Sender)
 		fmt.Println("Is Group:", v.Info.IsGroup)
+
+		var recipient types.JID
+		if v.Info.IsGroup {
+			groupID, err := types.ParseJID(v.Info.MessageSource.Chat.String())
+			if err != nil {
+				fmt.Println("Error parsing group ID:", err)
+				return
+			}
+			recipient = groupID
+			fmt.Println("Sending to the group:", recipient)
+		} else {
+			recipient = v.Info.Sender
+			fmt.Println("Sending to sender:", recipient)
+		}
+
 		if msg == "" {
 			return
 		}
