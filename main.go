@@ -40,6 +40,32 @@ type MyClient struct {
 	WAClient *whatsmeow.Client
 }
 
+func convertPNGtoWebP(pngData []byte) ([]byte, error) {
+	tempDir, err := os.MkdirTemp("", "webpconv")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	pngPath := filepath.Join(tempDir, "input.png")
+	if err := os.WriteFile(pngPath, pngData, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write png file: %w", err)
+	}
+
+	webpPath := filepath.Join(tempDir, "output.webp")
+	cmd := exec.Command("convert", pngPath, webpPath)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("convert failed: %s - %w", string(output), err)
+	}
+
+	webpData, err := os.ReadFile(webpPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read output webp: %w", err)
+	}
+
+	return webpData, nil
+}
+
 func transformLatexToImage(latexCode string) ([]byte, error) {
 	tempDir, err := os.MkdirTemp("", "latexbot")
 	if err != nil {
