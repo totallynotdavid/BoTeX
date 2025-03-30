@@ -92,12 +92,17 @@ func transformLatexToImage(latexCode string) ([]byte, error) {
 		return nil, fmt.Errorf("convert failed: %s - %w", string(output), err)
 	}
 
-	img, err := os.ReadFile(pngPath)
+	imgPNG, err := os.ReadFile(pngPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read output image: %w", err)
 	}
 
-	return img, nil
+	imgWebP, err := convertPNGtoWebP(imgPNG)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert to webp: %w", err)
+	}
+
+	return imgWebP, nil
 }
 
 func (mycli *MyClient) eventHandler(evt interface{}) {
@@ -105,7 +110,11 @@ func (mycli *MyClient) eventHandler(evt interface{}) {
 	case *events.Message:
 		newMessage := v.Message
 		msg := newMessage.GetConversation()
-		fmt.Println("Message from:", v.Info.Sender, "->", msg)
+		fmt.Printf("Event type: %T\n", evt)
+		fmt.Printf("Completed event: %+v\n", evt)
+		fmt.Println("Received message (GetConversation):", msg)
+		fmt.Println("Message from (Sender):", v.Info.Sender)
+		fmt.Println("Is Group:", v.Info.IsGroup)
 		if msg == "" {
 			return
 		}
