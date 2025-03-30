@@ -87,7 +87,7 @@ func transformLatexToImage(latexCode string) ([]byte, error) {
 	pdfPath := filepath.Join(tempDir, "latex.pdf")
 	pngPath := filepath.Join(tempDir, "latex.png")
 	cmd = exec.Command("convert", "-density", "300", "-trim", "-background", "white",
-		"-alpha", "remove", pdfPath, "-quality", "100", pngPath)
+		"-alpha", "remove", "-border", "8x8", "-bordercolor", "white", pdfPath, "-quality", "100", pngPath)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("convert failed: %s - %w", string(output), err)
 	}
