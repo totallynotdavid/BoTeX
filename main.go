@@ -250,21 +250,20 @@ func (mycli *MyClient) eventHandler(evt interface{}) {
 				return
 			}
 
-			img, err := transformLatexToImage(latexCode)
+			imgWebP, err = transformLatexToImage(latexCode)
 			if err != nil {
 				fmt.Println("Error generating image:", err)
 				return
 			}
 
-			resp, err := mycli.WAClient.Upload(context.Background(), img, whatsmeow.MediaImage)
+			resp, err = mycli.WAClient.Upload(context.Background(), imgWebP, whatsmeow.MediaImage)
 			if err != nil {
-				fmt.Println("Error uploading image:", err)
+				fmt.Println("Error uploading sticker:", err)
 				return
 			}
 
-			imageMsg := &waProto.ImageMessage{
-				Caption:       proto.String("Generado por @boTeX"),
-				Mimetype:      proto.String("image/png"),
+			stickerMsg := &waProto.StickerMessage{
+				Mimetype:      proto.String("image/webp"),
 				URL:           &resp.URL,
 				DirectPath:    &resp.DirectPath,
 				MediaKey:      resp.MediaKey,
@@ -272,13 +271,13 @@ func (mycli *MyClient) eventHandler(evt interface{}) {
 				FileSHA256:    resp.FileSHA256,
 			}
 
-			_, err = mycli.WAClient.SendMessage(context.Background(), v.Info.Sender, &waProto.Message{
-				ImageMessage: imageMsg,
+			_, err = mycli.WAClient.SendMessage(context.Background(), recipient, &waProto.Message{
+				StickerMessage: stickerMsg,
 			})
 			if err != nil {
-				fmt.Println("Error sending message:", err)
+				fmt.Println("Error sending sticker:", err)
 			} else {
-				fmt.Println("Image sent successfully")
+				fmt.Println("Sticker sent successfully")
 			}
 		}
 	}
