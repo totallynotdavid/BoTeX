@@ -8,23 +8,21 @@ import (
 	"path/filepath"
 	"strings"
 
-	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/proto/waE2E"
-	"google.golang.org/protobuf/proto"
-
 	"botex/pkg/config"
 	"botex/pkg/message"
+
+	"go.mau.fi/whatsmeow"
 )
 
 type LaTeXCommand struct {
-	client *whatsmeow.Client
-	config *config.Config
+	config        *config.Config
+	messageSender *message.MessageSender
 }
 
 func NewLaTeXCommand(client *whatsmeow.Client, config *config.Config) *LaTeXCommand {
 	return &LaTeXCommand{
-		client: client,
-		config: config,
+		config:        config,
+		messageSender: message.NewMessageSender(client),
 	}
 }
 
@@ -58,28 +56,7 @@ func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error 
 		return fmt.Errorf("generated image too large (max %d bytes)", lc.config.MaxImageSize)
 	}
 
-	resp, err := lc.client.Upload(ctx, imgWebP, whatsmeow.MediaImage)
-	if err != nil {
-		return fmt.Errorf("error uploading sticker: %w", err)
-	}
-
-	stickerMsg := &waE2E.StickerMessage{
-		Mimetype:      proto.String("image/webp"),
-		URL:           &resp.URL,
-		DirectPath:    &resp.DirectPath,
-		MediaKey:      resp.MediaKey,
-		FileEncSHA256: resp.FileEncSHA256,
-		FileSHA256:    resp.FileSHA256,
-	}
-
-	_, err = lc.client.SendMessage(ctx, msg.Recipient, &waE2E.Message{
-		StickerMessage: stickerMsg,
-	})
-	if err != nil {
-		return fmt.Errorf("error sending sticker: %w", err)
-	}
-
-	return nil
+	return lc.messageSender.SendImage(ctx, msg.Recipient, imgWebP, latexCode)
 }
 
 func (lc *LaTeXCommand) transformLatexToImage(latexCode string) ([]byte, error) {

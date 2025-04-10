@@ -12,9 +12,10 @@ import (
 )
 
 type CommandHandler struct {
-	client   *whatsmeow.Client
-	commands []Command
-	config   *config.Config
+	client        *whatsmeow.Client
+	commands      []Command
+	config        *config.Config
+	messageSender *message.MessageSender
 }
 
 // Command is an interface that all commands must implement
@@ -24,8 +25,9 @@ type Command interface {
 
 func NewCommandHandler(client *whatsmeow.Client, config *config.Config) *CommandHandler {
 	handler := &CommandHandler{
-		client: client,
-		config: config,
+		client:        client,
+		config:        config,
+		messageSender: message.NewMessageSender(client),
 	}
 
 	// Register all available commands
