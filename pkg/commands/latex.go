@@ -12,16 +12,19 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 
+	"botex/pkg/config"
 	"botex/pkg/message"
 )
 
 type LaTeXCommand struct {
 	client *whatsmeow.Client
+	config *config.Config
 }
 
-func NewLaTeXCommand(client *whatsmeow.Client) *LaTeXCommand {
+func NewLaTeXCommand(client *whatsmeow.Client, config *config.Config) *LaTeXCommand {
 	return &LaTeXCommand{
 		client: client,
+		config: config,
 	}
 }
 
@@ -33,12 +36,26 @@ func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error 
 
 	latexCode := strings.TrimSpace(strings.TrimPrefix(text, "!latex"))
 	if latexCode == "" {
-		return nil
+		return fmt.Errorf("empty LaTeX code")
 	}
 
-	imgWebP, err := transformLatexToImage(latexCode)
+	if len(latexCode) > 1000 {
+		return fmt.Errorf("LaTeX code too long (max 1000 characters)")
+	}
+
+	// Not allowed to use \input or \include
+	if strings.Contains(latexCode, "\\input") || strings.Contains(latexCode, "\\include") {
+		return fmt.Errorf("unsafe LaTeX commands not allowed")
+	}
+
+	imgWebP, err := lc.transformLatexToImage(latexCode)
 	if err != nil {
 		return fmt.Errorf("error generating image: %w", err)
+	}
+
+	// Validate image size
+	if int64(len(imgWebP)) > lc.config.MaxImageSize {
+		return fmt.Errorf("generated image too large (max %d bytes)", lc.config.MaxImageSize)
 	}
 
 	resp, err := lc.client.Upload(ctx, imgWebP, whatsmeow.MediaImage)
@@ -65,8 +82,8 @@ func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error 
 	return nil
 }
 
-func transformLatexToImage(latexCode string) ([]byte, error) {
-	tempDir, err := os.MkdirTemp("", "latexbot")
+func (lc *LaTeXCommand) transformLatexToImage(latexCode string) ([]byte, error) {
+	tempDir, err := os.MkdirTemp(lc.config.TempDir, "latexbot")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
@@ -96,7 +113,7 @@ func transformLatexToImage(latexCode string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read output image: %w", err)
 	}
 
-	imgWebP, err := convertPNGtoWebP(imgPNG)
+	imgWebP, err := lc.convertPNGtoWebP(imgPNG)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert to webp: %w", err)
 	}
@@ -104,8 +121,8 @@ func transformLatexToImage(latexCode string) ([]byte, error) {
 	return imgWebP, nil
 }
 
-func convertPNGtoWebP(pngData []byte) ([]byte, error) {
-	tempDir, err := os.MkdirTemp("", "webpconv")
+func (lc *LaTeXCommand) convertPNGtoWebP(pngData []byte) ([]byte, error) {
+	tempDir, err := os.MkdirTemp(lc.config.TempDir, "webpconv")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}

@@ -7,12 +7,14 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types/events"
 
+	"botex/pkg/config"
 	"botex/pkg/message"
 )
 
 type CommandHandler struct {
 	client   *whatsmeow.Client
 	commands []Command
+	config   *config.Config
 }
 
 // Command is an interface that all commands must implement
@@ -20,14 +22,15 @@ type Command interface {
 	Handle(ctx context.Context, msg *message.Message) error
 }
 
-func NewCommandHandler(client *whatsmeow.Client) *CommandHandler {
+func NewCommandHandler(client *whatsmeow.Client, config *config.Config) *CommandHandler {
 	handler := &CommandHandler{
 		client: client,
+		config: config,
 	}
 
 	// Register all available commands
 	handler.commands = []Command{
-		NewLaTeXCommand(client),
+		NewLaTeXCommand(client, config),
 	}
 
 	return handler
