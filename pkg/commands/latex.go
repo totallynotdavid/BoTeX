@@ -48,11 +48,11 @@ func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error 
 
 	stickerMsg := &waProto.StickerMessage{
 		Mimetype:      proto.String("image/webp"),
-		Url:           &resp.URL,
+		URL:           &resp.URL,
 		DirectPath:    &resp.DirectPath,
 		MediaKey:      resp.MediaKey,
-		FileEncSha256: resp.FileEncSHA256,
-		FileSha256:    resp.FileSHA256,
+		FileEncSHA256: resp.FileEncSHA256,
+		FileSHA256:    resp.FileSHA256,
 	}
 
 	_, err = lc.client.SendMessage(ctx, msg.Recipient, &waProto.Message{
