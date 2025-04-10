@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -141,6 +142,21 @@ func (ms *MessageSender) SendAudio(ctx context.Context, recipient types.JID, aud
 
 	_, err = ms.client.SendMessage(ctx, recipient, &waE2E.Message{
 		AudioMessage: audioMsg,
+	})
+	return err
+}
+
+func (ms *MessageSender) SendReaction(ctx context.Context, recipient types.JID, messageID string, emoji string) error {
+	_, err := ms.client.SendMessage(ctx, recipient, &waE2E.Message{
+		ReactionMessage: &waE2E.ReactionMessage{
+			Key: &waCommon.MessageKey{
+				RemoteJID:   proto.String(recipient.String()),
+				FromMe:      proto.Bool(true),
+				ID:          proto.String(messageID),
+				Participant: proto.String(recipient.String()),
+			},
+			Text: proto.String(emoji),
+		},
 	})
 	return err
 }

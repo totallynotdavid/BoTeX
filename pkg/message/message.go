@@ -12,6 +12,7 @@ type Message struct {
 	IsGroup   bool
 	GroupID   types.JID
 	Recipient types.JID
+	MessageID string
 
 	// Message content
 	ImageMessage    *waE2E.ImageMessage
@@ -26,6 +27,7 @@ func NewMessage(evt *events.Message) *Message {
 		Sender:     evt.Info.Sender,
 		IsGroup:    evt.Info.IsGroup,
 		RawMessage: evt.Message,
+		MessageID:  evt.Info.ID,
 	}
 
 	if msg.IsGroup {

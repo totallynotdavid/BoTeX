@@ -2,9 +2,12 @@ package commands
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"time"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 
 	"botex/pkg/config"
@@ -21,6 +24,7 @@ type CommandHandler struct {
 	logger        *logger.Logger
 	limiter       *ratelimit.Limiter
 	semaphore     chan struct{}
+	notifiedUsers map[types.JID]bool
 }
 
 // Command is an interface that all commands must implement
@@ -37,6 +41,7 @@ func NewCommandHandler(client *whatsmeow.Client, config *config.Config) *Command
 		logger:        logger.NewLogger(logger.INFO),
 		limiter:       ratelimit.NewLimiter(config.RateLimit.Requests, config.RateLimit.Period),
 		semaphore:     make(chan struct{}, config.MaxConcurrent),
+		notifiedUsers: make(map[types.JID]bool),
 	}
 
 	// Register all available commands
@@ -60,12 +65,41 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 			"text":      msg.GetText(),
 		})
 
-		// Check rate limiting
-		if !h.limiter.Allow(msg.Sender) {
-			h.logger.Warn("Rate limit exceeded", map[string]interface{}{
-				"sender": msg.Sender,
-			})
-			return
+		text := msg.GetText()
+		hasCommand := false
+		for _, cmd := range h.commands {
+			if strings.HasPrefix(text, "!"+cmd.Name()) {
+				hasCommand = true
+				break
+			}
+		}
+
+		// Check rate limit
+		if hasCommand {
+			if !h.limiter.Allow(msg.Sender) {
+				h.logger.Warn("Rate limit exceeded", map[string]interface{}{
+					"sender": msg.Sender,
+				})
+
+				// Only notify if we haven't notified this user recently
+				if !h.notifiedUsers[msg.Sender] {
+					h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
+					h.messageSender.SendText(ctx, msg.Recipient, "Rate limit exceeded. Please wait a moment before sending more commands.")
+					h.notifiedUsers[msg.Sender] = true
+
+					// Clear the notification flag after the rate limit period
+					go func() {
+						time.Sleep(h.config.RateLimit.Period)
+						h.notifiedUsers[msg.Sender] = false
+					}()
+				}
+				return
+			}
+
+			// Reset notification flag if user is now allowed
+			if h.notifiedUsers[msg.Sender] {
+				h.notifiedUsers[msg.Sender] = false
+			}
 		}
 
 		// Acquire semaphore
@@ -76,10 +110,11 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 			h.logger.Warn("Too many concurrent commands", map[string]interface{}{
 				"sender": msg.Sender,
 			})
+			h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
+			h.messageSender.SendText(ctx, msg.Recipient, "Too many commands being processed. Please wait a moment.")
 			return
 		}
 
-		text := msg.GetText()
 		for _, cmd := range h.commands {
 			if !strings.HasPrefix(text, "!"+cmd.Name()) {
 				continue
@@ -90,11 +125,14 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 					"sender":  msg.Sender,
 					"error":   err.Error(),
 				})
+				h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "❌")
+				h.messageSender.SendText(ctx, msg.Recipient, fmt.Sprintf("Error executing command: %v", err))
 			} else {
 				h.logger.Info("Command executed successfully", map[string]interface{}{
 					"command": cmd.Name(),
 					"sender":  msg.Sender,
 				})
+				h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "✅")
 			}
 		}
 	}
