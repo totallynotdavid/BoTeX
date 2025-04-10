@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"go.mau.fi/whatsmeow"
-	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/proto"
 
 	"botex/pkg/message"
@@ -46,7 +46,7 @@ func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error 
 		return fmt.Errorf("error uploading sticker: %w", err)
 	}
 
-	stickerMsg := &waProto.StickerMessage{
+	stickerMsg := &waE2E.StickerMessage{
 		Mimetype:      proto.String("image/webp"),
 		URL:           &resp.URL,
 		DirectPath:    &resp.DirectPath,
@@ -55,7 +55,7 @@ func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error 
 		FileSHA256:    resp.FileSHA256,
 	}
 
-	_, err = lc.client.SendMessage(ctx, msg.Recipient, &waProto.Message{
+	_, err = lc.client.SendMessage(ctx, msg.Recipient, &waE2E.Message{
 		StickerMessage: stickerMsg,
 	})
 	if err != nil {
