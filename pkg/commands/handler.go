@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"strings"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types/events"
@@ -78,7 +79,11 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 			return
 		}
 
+		text := msg.GetText()
 		for _, cmd := range h.commands {
+			if !strings.HasPrefix(text, "!"+cmd.Name()) {
+				continue
+			}
 			if err := cmd.Handle(ctx, msg); err != nil {
 				h.logger.Error("Error handling command", map[string]interface{}{
 					"command": cmd.Name(),
