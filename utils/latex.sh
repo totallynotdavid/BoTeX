@@ -62,7 +62,7 @@ log_info "Installing additional essential packages"
 tlmgr install \
     collection-fontsrecommended \
     collection-latexrecommended \
-    standalone \
+    standalone preview physics \
     --verify-repo=none
 
 log_info "Adding TexLive to PATH permanently"
