@@ -26,6 +26,10 @@ func NewLaTeXCommand(client *whatsmeow.Client, config *config.Config) *LaTeXComm
 	}
 }
 
+func (lc *LaTeXCommand) Name() string {
+	return "latex"
+}
+
 func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error {
 	text := msg.GetText()
 	if !strings.HasPrefix(text, "!latex") {
@@ -41,9 +45,9 @@ func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error 
 		return fmt.Errorf("LaTeX code too long (max 1000 characters)")
 	}
 
-	// Not allowed to use \input or \include
-	if strings.Contains(latexCode, "\\input") || strings.Contains(latexCode, "\\include") {
-		return fmt.Errorf("unsafe LaTeX commands not allowed")
+	// Sanitize input
+	if err := lc.validateLatex(latexCode); err != nil {
+		return err
 	}
 
 	imgWebP, err := lc.transformLatexToImage(latexCode)
@@ -57,6 +61,23 @@ func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error 
 	}
 
 	return lc.messageSender.SendImage(ctx, msg.Recipient, imgWebP, latexCode)
+}
+
+func (lc *LaTeXCommand) validateLatex(code string) error {
+	dangerousCommands := []string{
+		"\\input", "\\include", "\\write18", "\\openout", "\\read",
+		"\\catcode", "\\def", "\\let", "\\futurelet", "\\newhelp",
+		"\\uppercase", "\\lowercase", "\\relax", "\\aftergroup",
+		"\\afterassignment", "\\expandafter", "\\noexpand", "\\special",
+	}
+
+	for _, cmd := range dangerousCommands {
+		if strings.Contains(code, cmd) {
+			return fmt.Errorf("unsafe LaTeX command detected: %s", cmd)
+		}
+	}
+
+	return nil
 }
 
 func (lc *LaTeXCommand) transformLatexToImage(latexCode string) ([]byte, error) {
