@@ -15,7 +15,7 @@ type Config struct {
 
 func Load() *Config {
 	return &Config{
-		DBPath:        getEnv("BOTEX_DB_PATH", "file:examplestore.db?_foreign_keys=on"),
+		DBPath:        getEnv("BOTEX_DB_PATH", "file:examplestore.db?_foreign_keys=on&_journal_mode=WAL"),
 		LogLevel:      getEnv("BOTEX_LOG_LEVEL", "WARN"),
 		TempDir:       getEnv("BOTEX_TEMP_DIR", os.TempDir()),
 		MaxImageSize:  5 * 1024 * 1024, // 5MB
