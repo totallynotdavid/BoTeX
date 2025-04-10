@@ -1,7 +1,7 @@
 package message
 
 import (
-	waProto "go.mau.fi/whatsmeow/binary/proto"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -14,11 +14,11 @@ type Message struct {
 	Recipient types.JID
 
 	// Message content
-	ImageMessage    *waProto.ImageMessage
-	DocumentMessage *waProto.DocumentMessage
-	ExtendedText    *waProto.ExtendedTextMessage
+	ImageMessage    *waE2E.ImageMessage
+	DocumentMessage *waE2E.DocumentMessage
+	ExtendedText    *waE2E.ExtendedTextMessage
 
-	RawMessage *waProto.Message
+	RawMessage *waE2E.Message
 }
 
 func NewMessage(evt *events.Message) *Message {
