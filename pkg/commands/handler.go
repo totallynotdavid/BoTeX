@@ -16,6 +16,15 @@ import (
 	"botex/pkg/ratelimit"
 )
 
+type CommandInfo struct {
+	BriefDescription string
+	Description      string
+	Usage            string
+	Parameters       []string
+	Examples         []string
+	Notes            []string
+}
+
 type CommandHandler struct {
 	client        *whatsmeow.Client
 	commands      []Command
@@ -31,6 +40,7 @@ type CommandHandler struct {
 type Command interface {
 	Handle(ctx context.Context, msg *message.Message) error
 	Name() string
+	Info() CommandInfo
 }
 
 func NewCommandHandler(client *whatsmeow.Client, config *config.Config) *CommandHandler {
@@ -45,8 +55,10 @@ func NewCommandHandler(client *whatsmeow.Client, config *config.Config) *Command
 	}
 
 	// Register all available commands
+	latexCmd := NewLaTeXCommand(client, config)
 	handler.commands = []Command{
-		NewLaTeXCommand(client, config),
+		latexCmd,
+		NewHelpCommand(client, config, []Command{latexCmd}),
 	}
 
 	return handler

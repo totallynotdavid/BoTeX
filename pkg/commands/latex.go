@@ -14,6 +14,10 @@ import (
 	"go.mau.fi/whatsmeow"
 )
 
+// LaTeXCommand handles rendering LaTeX equations into images
+// Usage: !latex <equation>
+// Example: !latex x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
+// The command supports basic LaTeX math mode syntax and has a 1000 character limit.
 type LaTeXCommand struct {
 	config        *config.Config
 	messageSender *message.MessageSender
@@ -159,3 +163,29 @@ const latexTemplate = `
 
 \end{document}
 `
+
+func (lc *LaTeXCommand) Info() CommandInfo {
+	return CommandInfo{
+		BriefDescription: "Render LaTeX equations into images",
+		Description:      "Renders LaTeX equations into images using math mode syntax.",
+		Usage:            "!latex <equation>",
+		Parameters: []string{
+			"*equation*: The LaTeX equation to render (max 1000 characters)",
+		},
+		Examples: []string{
+			"!latex x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}",
+			"!latex \\int_{a}^{b} f(x)\\,dx = F(b) - F(a)",
+		},
+		Notes: []string{
+			"Supports basic LaTeX math mode syntax",
+			"Maximum equation length is 1000 characters",
+		},
+	}
+}
+
+func (lc *LaTeXCommand) Help() string {
+	return "Renders LaTeX equations into images.\n" +
+		"Usage: !latex <equation>\n" +
+		"Example: !latex x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}\n" +
+		"Supports basic LaTeX math mode syntax. Maximum 1000 characters."
+}
