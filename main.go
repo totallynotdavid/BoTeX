@@ -19,6 +19,8 @@ import (
 
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"google.golang.org/protobuf/proto"
+
+	"go.mau.fi/whatsmeow/types"
 )
 
 const latexTemplate = `
@@ -38,6 +40,32 @@ const latexTemplate = `
 
 type MyClient struct {
 	WAClient *whatsmeow.Client
+}
+
+func convertPNGtoWebP(pngData []byte) ([]byte, error) {
+	tempDir, err := os.MkdirTemp("", "webpconv")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	pngPath := filepath.Join(tempDir, "input.png")
+	if err := os.WriteFile(pngPath, pngData, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write png file: %w", err)
+	}
+
+	webpPath := filepath.Join(tempDir, "output.webp")
+	cmd := exec.Command("convert", pngPath, webpPath)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("convert failed: %s - %w", string(output), err)
+	}
+
+	webpData, err := os.ReadFile(webpPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read output webp: %w", err)
+	}
+
+	return webpData, nil
 }
 
 func transformLatexToImage(latexCode string) ([]byte, error) {
@@ -61,17 +89,22 @@ func transformLatexToImage(latexCode string) ([]byte, error) {
 	pdfPath := filepath.Join(tempDir, "latex.pdf")
 	pngPath := filepath.Join(tempDir, "latex.png")
 	cmd = exec.Command("convert", "-density", "300", "-trim", "-background", "white",
-		"-alpha", "remove", pdfPath, "-quality", "100", pngPath)
+		"-alpha", "remove", "-border", "8x8", "-bordercolor", "white", pdfPath, "-quality", "100", pngPath)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("convert failed: %s - %w", string(output), err)
 	}
 
-	img, err := os.ReadFile(pngPath)
+	imgPNG, err := os.ReadFile(pngPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read output image: %w", err)
 	}
 
-	return img, nil
+	imgWebP, err := convertPNGtoWebP(imgPNG)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert to webp: %w", err)
+	}
+
+	return imgWebP, nil
 }
 
 func (mycli *MyClient) eventHandler(evt interface{}) {
@@ -79,8 +112,135 @@ func (mycli *MyClient) eventHandler(evt interface{}) {
 	case *events.Message:
 		newMessage := v.Message
 		msg := newMessage.GetConversation()
-		fmt.Println("Message from:", v.Info.Sender, "->", msg)
+		fmt.Printf("Event type: %T\n", evt)
+		fmt.Printf("Completed event: %+v\n", evt)
+		fmt.Println("Received message (GetConversation):", msg)
+		fmt.Println("Message from (Sender):", v.Info.Sender)
+		fmt.Println("Is Group:", v.Info.IsGroup)
+
+		var recipient types.JID
+		if v.Info.IsGroup {
+			groupID, err := types.ParseJID(v.Info.MessageSource.Chat.String())
+			if err != nil {
+				fmt.Println("Error parsing group ID:", err)
+				return
+			}
+			recipient = groupID
+			fmt.Println("Sending to the group:", recipient)
+		} else {
+			recipient = v.Info.Sender
+			fmt.Println("Sending to sender:", recipient)
+		}
+
+		var err error
+		var stickerMsg *waProto.StickerMessage
+		var imgWebP []byte
+		var resp whatsmeow.UploadResponse
+
 		if msg == "" {
+			if imageMessage := newMessage.GetImageMessage(); imageMessage != nil {
+				caption := imageMessage.GetCaption()
+				if strings.HasPrefix(caption, "!latex") {
+					latexCode := strings.TrimSpace(strings.TrimPrefix(caption, "!latex"))
+					if latexCode == "" {
+						return
+					}
+					imgWebP, err = transformLatexToImage(latexCode)
+					if err != nil {
+						fmt.Println("Error generating image:", err)
+						return
+					}
+					resp, err = mycli.WAClient.Upload(context.Background(), imgWebP, whatsmeow.MediaImage)
+					if err != nil {
+						fmt.Println("Error uploading sticker:", err)
+						return
+					}
+					stickerMsg = &waProto.StickerMessage{
+						Mimetype:      proto.String("image/webp"),
+						URL:           &resp.URL,
+						DirectPath:    &resp.DirectPath,
+						MediaKey:      resp.MediaKey,
+						FileEncSHA256: resp.FileEncSHA256,
+						FileSHA256:    resp.FileSHA256,
+					}
+					_, err = mycli.WAClient.SendMessage(context.Background(), recipient, &waProto.Message{
+						StickerMessage: stickerMsg,
+					})
+					if err != nil {
+						fmt.Println("Error sending sticker:", err)
+					} else {
+						fmt.Println("Sticker sent successfully")
+					}
+				}
+			} else if documentMessage := newMessage.GetDocumentMessage(); documentMessage != nil {
+				caption := documentMessage.GetCaption()
+				if strings.HasPrefix(caption, "!latex") {
+					latexCode := strings.TrimSpace(strings.TrimPrefix(caption, "!latex"))
+					if latexCode == "" {
+						return
+					}
+					imgWebP, err = transformLatexToImage(latexCode)
+					if err != nil {
+						fmt.Println("Error generating image:", err)
+						return
+					}
+					resp, err = mycli.WAClient.Upload(context.Background(), imgWebP, whatsmeow.MediaImage)
+					if err != nil {
+						fmt.Println("Error uploading sticker:", err)
+						return
+					}
+					stickerMsg = &waProto.StickerMessage{
+						Mimetype:      proto.String("image/webp"),
+						URL:           &resp.URL,
+						DirectPath:    &resp.DirectPath,
+						MediaKey:      resp.MediaKey,
+						FileEncSHA256: resp.FileEncSHA256,
+						FileSHA256:    resp.FileSHA256,
+					}
+					_, err = mycli.WAClient.SendMessage(context.Background(), recipient, &waProto.Message{
+						StickerMessage: stickerMsg,
+					})
+					if err != nil {
+						fmt.Println("Error sending sticker:", err)
+					} else {
+						fmt.Println("Sticker sent successfully")
+					}
+				}
+			} else if extendedTextMessage := newMessage.GetExtendedTextMessage(); extendedTextMessage != nil {
+				text := extendedTextMessage.GetText()
+				if strings.HasPrefix(text, "!latex") {
+					latexCode := strings.TrimSpace(strings.TrimPrefix(text, "!latex"))
+					if latexCode == "" {
+						return
+					}
+					imgWebP, err = transformLatexToImage(latexCode)
+					if err != nil {
+						fmt.Println("Error generating image:", err)
+						return
+					}
+					resp, err = mycli.WAClient.Upload(context.Background(), imgWebP, whatsmeow.MediaImage)
+					if err != nil {
+						fmt.Println("Error uploading sticker:", err)
+						return
+					}
+					stickerMsg = &waProto.StickerMessage{
+						Mimetype:      proto.String("image/webp"),
+						URL:           &resp.URL,
+						DirectPath:    &resp.DirectPath,
+						MediaKey:      resp.MediaKey,
+						FileEncSHA256: resp.FileEncSHA256,
+						FileSHA256:    resp.FileSHA256,
+					}
+					_, err = mycli.WAClient.SendMessage(context.Background(), recipient, &waProto.Message{
+						StickerMessage: stickerMsg,
+					})
+					if err != nil {
+						fmt.Println("Error sending sticker:", err)
+					} else {
+						fmt.Println("Sticker sent successfully")
+					}
+				}
+			}
 			return
 		}
 
@@ -90,21 +250,20 @@ func (mycli *MyClient) eventHandler(evt interface{}) {
 				return
 			}
 
-			img, err := transformLatexToImage(latexCode)
+			imgWebP, err = transformLatexToImage(latexCode)
 			if err != nil {
 				fmt.Println("Error generating image:", err)
 				return
 			}
 
-			resp, err := mycli.WAClient.Upload(context.Background(), img, whatsmeow.MediaImage)
+			resp, err = mycli.WAClient.Upload(context.Background(), imgWebP, whatsmeow.MediaImage)
 			if err != nil {
-				fmt.Println("Error uploading image:", err)
+				fmt.Println("Error uploading sticker:", err)
 				return
 			}
 
-			imageMsg := &waProto.ImageMessage{
-				Caption:       proto.String("Generado por @boTeX"),
-				Mimetype:      proto.String("image/png"),
+			stickerMsg := &waProto.StickerMessage{
+				Mimetype:      proto.String("image/webp"),
 				URL:           &resp.URL,
 				DirectPath:    &resp.DirectPath,
 				MediaKey:      resp.MediaKey,
@@ -112,13 +271,13 @@ func (mycli *MyClient) eventHandler(evt interface{}) {
 				FileSHA256:    resp.FileSHA256,
 			}
 
-			_, err = mycli.WAClient.SendMessage(context.Background(), v.Info.Sender, &waProto.Message{
-				ImageMessage: imageMsg,
+			_, err = mycli.WAClient.SendMessage(context.Background(), recipient, &waProto.Message{
+				StickerMessage: stickerMsg,
 			})
 			if err != nil {
-				fmt.Println("Error sending message:", err)
+				fmt.Println("Error sending sticker:", err)
 			} else {
-				fmt.Println("Image sent successfully")
+				fmt.Println("Sticker sent successfully")
 			}
 		}
 	}
