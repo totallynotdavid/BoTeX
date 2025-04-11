@@ -34,11 +34,11 @@ func (l *Limiter) Check(user types.JID) Result {
 
 	now := time.Now()
 	requests := l.requests[user]
-	
+
 	// Count valid requests and find earliest request time
 	var validRequests []time.Time
 	var earliestTime time.Time
-	
+
 	for _, t := range requests {
 		age := now.Sub(t)
 		if age <= l.period {
@@ -60,7 +60,7 @@ func (l *Limiter) Check(user types.JID) Result {
 
 	// Check if rate limited
 	allowed := len(validRequests) < l.maxRequests
-	
+
 	// If allowed, record this request
 	if allowed {
 		validRequests = append(validRequests, now)
