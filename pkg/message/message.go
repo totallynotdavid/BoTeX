@@ -31,7 +31,7 @@ func NewMessage(evt *events.Message) *Message {
 	}
 
 	if msg.IsGroup {
-		groupID, err := types.ParseJID(evt.Info.MessageSource.Chat.String())
+		groupID, err := types.ParseJID(evt.Info.Chat.String())
 		if err == nil {
 			msg.GroupID = groupID
 			msg.Recipient = groupID

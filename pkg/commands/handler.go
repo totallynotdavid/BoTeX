@@ -64,6 +64,24 @@ func NewCommandHandler(client *whatsmeow.Client, config *config.Config) *Command
 	return handler
 }
 
+func (h *CommandHandler) sendReaction(ctx context.Context, recipient types.JID, messageID string, emoji string) {
+	if err := h.messageSender.SendReaction(ctx, recipient, messageID, emoji); err != nil {
+		h.logger.Error("Failed to send reaction", map[string]interface{}{
+			"recipient": recipient,
+			"error":     err.Error(),
+		})
+	}
+}
+
+func (h *CommandHandler) sendText(ctx context.Context, recipient types.JID, text string) {
+	if err := h.messageSender.SendText(ctx, recipient, text); err != nil {
+		h.logger.Error("Failed to send text message", map[string]interface{}{
+			"recipient": recipient,
+			"error":     err.Error(),
+		})
+	}
+}
+
 func (h *CommandHandler) HandleEvent(evt interface{}) {
 	switch v := evt.(type) {
 	case *events.Message:
@@ -95,8 +113,8 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 
 				// Only notify if we haven't notified this user recently
 				if !h.notifiedUsers[msg.Sender] {
-					h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
-					h.messageSender.SendText(ctx, msg.Recipient, "Rate limit exceeded. Please wait a moment before sending more commands.")
+					h.sendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
+					h.sendText(ctx, msg.Recipient, "Rate limit exceeded. Please wait a moment before sending more commands.")
 					h.notifiedUsers[msg.Sender] = true
 
 					// Clear the notification flag after the rate limit period
@@ -122,8 +140,8 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 			h.logger.Warn("Too many concurrent commands", map[string]interface{}{
 				"sender": msg.Sender,
 			})
-			h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
-			h.messageSender.SendText(ctx, msg.Recipient, "Too many commands being processed. Please wait a moment.")
+			h.sendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
+			h.sendText(ctx, msg.Recipient, "Too many commands being processed. Please wait a moment.")
 			return
 		}
 
@@ -137,14 +155,14 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 					"sender":  msg.Sender,
 					"error":   err.Error(),
 				})
-				h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "❌")
-				h.messageSender.SendText(ctx, msg.Recipient, fmt.Sprintf("Error executing command: %v", err))
+				h.sendReaction(ctx, msg.Recipient, msg.MessageID, "❌")
+				h.sendText(ctx, msg.Recipient, fmt.Sprintf("Error executing command: %v", err))
 			} else {
 				h.logger.Info("Command executed successfully", map[string]interface{}{
 					"command": cmd.Name(),
 					"sender":  msg.Sender,
 				})
-				h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "✅")
+				h.sendReaction(ctx, msg.Recipient, msg.MessageID, "✅")
 			}
 		}
 	}

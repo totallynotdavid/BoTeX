@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"botex/pkg/config"
+	"botex/pkg/logger"
 	"botex/pkg/message"
 
 	"go.mau.fi/whatsmeow"
@@ -21,12 +22,14 @@ import (
 type LaTeXCommand struct {
 	config        *config.Config
 	messageSender *message.MessageSender
+	logger        *logger.Logger
 }
 
 func NewLaTeXCommand(client *whatsmeow.Client, config *config.Config) *LaTeXCommand {
 	return &LaTeXCommand{
 		config:        config,
 		messageSender: message.NewMessageSender(client),
+		logger:        logger.NewLogger(logger.INFO),
 	}
 }
 
@@ -84,12 +87,21 @@ func (lc *LaTeXCommand) validateLatex(code string) error {
 	return nil
 }
 
+func (lc *LaTeXCommand) cleanupTempDir(dir string) {
+	if err := os.RemoveAll(dir); err != nil {
+		lc.logger.Error("Failed to cleanup temp directory", map[string]interface{}{
+			"dir":   dir,
+			"error": err.Error(),
+		})
+	}
+}
+
 func (lc *LaTeXCommand) transformLatexToImage(latexCode string) ([]byte, error) {
 	tempDir, err := os.MkdirTemp(lc.config.TempDir, "latexbot")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer lc.cleanupTempDir(tempDir)
 
 	latexDocument := fmt.Sprintf(latexTemplate, latexCode)
 	inputPath := filepath.Join(tempDir, "input.tex")
@@ -128,7 +140,7 @@ func (lc *LaTeXCommand) convertPNGtoWebP(pngData []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer lc.cleanupTempDir(tempDir)
 
 	pngPath := filepath.Join(tempDir, "input.png")
 	if err := os.WriteFile(pngPath, pngData, 0644); err != nil {
