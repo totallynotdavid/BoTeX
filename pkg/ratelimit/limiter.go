@@ -7,50 +7,68 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
+type Result struct {
+	Allowed    bool
+	ResetAfter time.Duration
+}
+
 type Limiter struct {
-	mu       sync.Mutex
-	requests map[types.JID][]time.Time
-	config   struct {
-		requests int
-		period   time.Duration
-	}
+	mu          sync.Mutex
+	requests    map[types.JID][]time.Time
+	maxRequests int
+	period      time.Duration
 }
 
-func NewLimiter(requests int, period time.Duration) *Limiter {
+func NewLimiter(maxRequests int, period time.Duration) *Limiter {
 	return &Limiter{
-		requests: make(map[types.JID][]time.Time),
-		config: struct {
-			requests int
-			period   time.Duration
-		}{
-			requests: requests,
-			period:   period,
-		},
+		requests:    make(map[types.JID][]time.Time),
+		maxRequests: maxRequests,
+		period:      period,
 	}
 }
 
-func (l *Limiter) Allow(user types.JID) bool {
+func (l *Limiter) Check(user types.JID) Result {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	now := time.Now()
 	requests := l.requests[user]
 
-	// Remove expired requests
+	// Filter valid requests and find earliest timestamp
 	var validRequests []time.Time
+	var earliest time.Time
 	for _, t := range requests {
-		if now.Sub(t) <= l.config.period {
+		if now.Sub(t) <= l.period {
 			validRequests = append(validRequests, t)
+			if earliest.IsZero() || t.Before(earliest) {
+				earliest = t
+			}
 		}
 	}
 
-	if len(validRequests) >= l.config.requests {
-		return false
+	// Calculate reset time
+	resetAfter := l.period
+	if len(validRequests) > 0 {
+		resetAfter = l.period - now.Sub(earliest)
+		if resetAfter < 0 {
+			resetAfter = 0
+		}
 	}
 
-	validRequests = append(validRequests, now)
-	l.requests[user] = validRequests
-	return true
+	allowed := len(validRequests) < l.maxRequests
+	if allowed {
+		validRequests = append(validRequests, now)
+		l.requests[user] = validRequests
+	}
+
+	return Result{
+		Allowed:    allowed,
+		ResetAfter: resetAfter,
+	}
+}
+
+func (l *Limiter) Allow(user types.JID) bool {
+	return l.Check(user).Allowed
 }
 
 func (l *Limiter) Cleanup() {
@@ -59,16 +77,16 @@ func (l *Limiter) Cleanup() {
 
 	now := time.Now()
 	for user, requests := range l.requests {
-		var validRequests []time.Time
+		var valid []time.Time
 		for _, t := range requests {
-			if now.Sub(t) <= l.config.period {
-				validRequests = append(validRequests, t)
+			if now.Sub(t) <= l.period {
+				valid = append(valid, t)
 			}
 		}
-		if len(validRequests) == 0 {
+		if len(valid) == 0 {
 			delete(l.requests, user)
 		} else {
-			l.requests[user] = validRequests
+			l.requests[user] = valid
 		}
 	}
 }
