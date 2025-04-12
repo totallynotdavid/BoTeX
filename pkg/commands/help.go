@@ -8,6 +8,7 @@ import (
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/message"
+
 	"go.mau.fi/whatsmeow"
 )
 
@@ -70,7 +71,7 @@ func (hc *HelpCommand) Handle(ctx context.Context, msg *message.Message) error {
 			}
 		}
 		if !found {
-			helpText.WriteString(fmt.Sprintf("Command `%s` not found", cmdName))
+			helpText.WriteString(fmt.Sprintf("Command `%s` not found. Use `!help` to see available commands.", cmdName))
 		}
 	}
 
