@@ -70,5 +70,7 @@ func (l *Logger) log(level string, msg string, data interface{}) {
 		return
 	}
 
-	fmt.Println(string(jsonData))
+	if _, err := fmt.Fprintf(os.Stdout, "%s\n", string(jsonData)); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing log entry: %v\n", err)
+	}
 }
