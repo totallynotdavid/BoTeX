@@ -44,6 +44,10 @@ type Config struct {
 		NotificationCooldown time.Duration
 		CleanupInterval      time.Duration
 	}
+
+	PDFLatexPath string
+	ConvertPath  string
+	CWebPPath    string
 }
 
 func Load() *Config {
@@ -53,6 +57,10 @@ func Load() *Config {
 		TempDir:       getEnv("BOTEX_TEMP_DIR", os.TempDir()),
 		MaxImageSize:  DefaultMaxImageSize,
 		MaxConcurrent: DefaultMaxConcurrent,
+
+		PDFLatexPath: getEnv("BOTEX_PDFLATEX_PATH", ""),
+		ConvertPath:  getEnv("BOTEX_CONVERT_PATH", ""),
+		CWebPPath:    getEnv("BOTEX_CWEBP_PATH", ""),
 	}
 
 	// Rate limiting configuration

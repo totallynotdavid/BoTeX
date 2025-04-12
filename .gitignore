@@ -13,4 +13,3 @@ botex
 *.db-journal
 
 .env
-.env.example
