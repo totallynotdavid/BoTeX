@@ -26,7 +26,7 @@ func NewManager(requests int, period time.Duration) *Manager {
 	}
 }
 
-// Stop cleans up resources used by the rate limit manager
+// Stop cleans up resources used by the rate limit manager.
 func (m *Manager) Stop() {
 	m.AutoClean.Stop()
 }

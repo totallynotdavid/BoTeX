@@ -21,7 +21,7 @@ var (
 	ErrInvalidCommandInput = errors.New("invalid command input")
 )
 
-// Command is an interface that all commands must implement
+// Command is an interface that all commands must implement.
 type Command interface {
 	Handle(ctx context.Context, msg *message.Message) error
 	Name() string

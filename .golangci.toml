@@ -35,6 +35,14 @@ version = "2"
       checkTypeAssertions = true
       checkAssignToBlank = true
 
+    [linters.settings.depguard.rules.main]
+    list-mode = "lax"
+    allow = [
+      "botex/pkg/logger",
+      "botex/pkg/message",
+      "go.mau.fi/whatsmeow/types"
+    ]
+
 [formatters]
   enable = ["gofumpt", "goimports", "gci"]
   [formatters.settings.gci]
