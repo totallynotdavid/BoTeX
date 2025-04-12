@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -65,10 +66,12 @@ func (b *Bot) Start() error {
 
 	if b.client.Store.ID == nil {
 		b.logger.Info("No device stored, initiating QR login", nil)
+
 		return b.handleQRLogin()
 	}
 
 	b.logger.Info("Restoring existing session", nil)
+
 	return b.connect()
 }
 
@@ -84,11 +87,13 @@ func (b *Bot) handleQRLogin() error {
 			qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
 		case "success":
 			b.logger.Info("QR login successful", nil)
+
 			return nil
 		case "timeout":
-			return fmt.Errorf("QR login timed out")
+			return errors.New("QR login timed out")
 		}
 	}
+
 	return nil
 }
 
@@ -96,6 +101,7 @@ func (b *Bot) connect() error {
 	if err := b.client.Connect(); err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
+
 	return nil
 }
 

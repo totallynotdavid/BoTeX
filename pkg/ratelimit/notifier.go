@@ -29,8 +29,10 @@ func (n *Notifier) ShouldNotify(user types.JID) bool {
 		n.mu.Lock()
 		n.notifiedTime[user] = time.Now()
 		n.mu.Unlock()
+
 		return true
 	}
+
 	return false
 }
 

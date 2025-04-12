@@ -1,7 +1,7 @@
 package config
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"time"
 )
@@ -40,23 +40,24 @@ func Load() *Config {
 
 func (c *Config) Validate() error {
 	if c.MaxImageSize <= 0 {
-		return fmt.Errorf("MaxImageSize must be positive")
+		return errors.New("MaxImageSize must be positive")
 	}
 	if c.MaxConcurrent <= 0 {
-		return fmt.Errorf("MaxConcurrent must be positive")
+		return errors.New("MaxConcurrent must be positive")
 	}
 	if c.RateLimit.Requests <= 0 {
-		return fmt.Errorf("RateLimit.Requests must be positive")
+		return errors.New("RateLimit.Requests must be positive")
 	}
 	if c.RateLimit.Period <= 0 {
-		return fmt.Errorf("RateLimit.Period must be positive")
+		return errors.New("RateLimit.Period must be positive")
 	}
 	if c.RateLimit.NotificationCooldown <= 0 {
-		return fmt.Errorf("RateLimit.NotificationCooldown must be positive")
+		return errors.New("RateLimit.NotificationCooldown must be positive")
 	}
 	if c.RateLimit.CleanupInterval <= 0 {
-		return fmt.Errorf("RateLimit.CleanupInterval must be positive")
+		return errors.New("RateLimit.CleanupInterval must be positive")
 	}
+
 	return nil
 }
 
@@ -64,5 +65,6 @@ func getEnv(key, defaultValue string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
 	}
+
 	return defaultValue
 }

@@ -25,6 +25,7 @@ func (ms *MessageSender) SendText(ctx context.Context, recipient types.JID, text
 	_, err := ms.client.SendMessage(ctx, recipient, &waE2E.Message{
 		Conversation: proto.String(text),
 	})
+
 	return err
 }
 
@@ -51,6 +52,7 @@ func (ms *MessageSender) SendImage(ctx context.Context, recipient types.JID, ima
 	_, err = ms.client.SendMessage(ctx, recipient, &waE2E.Message{
 		ImageMessage: imageMsg,
 	})
+
 	return err
 }
 
@@ -72,6 +74,7 @@ func (ms *MessageSender) SendSticker(ctx context.Context, recipient types.JID, s
 	_, err = ms.client.SendMessage(ctx, recipient, &waE2E.Message{
 		StickerMessage: stickerMsg,
 	})
+
 	return err
 }
 
@@ -95,6 +98,7 @@ func (ms *MessageSender) SendDocument(ctx context.Context, recipient types.JID, 
 	_, err = ms.client.SendMessage(ctx, recipient, &waE2E.Message{
 		DocumentMessage: documentMsg,
 	})
+
 	return err
 }
 
@@ -121,6 +125,7 @@ func (ms *MessageSender) SendVideo(ctx context.Context, recipient types.JID, vid
 	_, err = ms.client.SendMessage(ctx, recipient, &waE2E.Message{
 		VideoMessage: videoMsg,
 	})
+
 	return err
 }
 
@@ -143,6 +148,7 @@ func (ms *MessageSender) SendAudio(ctx context.Context, recipient types.JID, aud
 	_, err = ms.client.SendMessage(ctx, recipient, &waE2E.Message{
 		AudioMessage: audioMsg,
 	})
+
 	return err
 }
 
@@ -158,5 +164,6 @@ func (ms *MessageSender) SendReaction(ctx context.Context, recipient types.JID, 
 			Text: proto.String(emoji),
 		},
 	})
+
 	return err
 }

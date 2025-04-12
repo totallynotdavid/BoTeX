@@ -8,7 +8,6 @@ import (
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/message"
-
 	"go.mau.fi/whatsmeow"
 )
 
@@ -57,7 +56,7 @@ func (hc *HelpCommand) Handle(ctx context.Context, msg *message.Message) error {
 			if cmd.Name() == cmdName {
 				info := cmd.Info()
 				helpText.WriteString(fmt.Sprintf("*%s Command*\n\n", cmdName))
-				helpText.WriteString(fmt.Sprintf("%s\n\n", info.Description))
+				helpText.WriteString(info.Description + "\n\n")
 				helpText.WriteString(fmt.Sprintf("*Usage:* `%s`\n", info.Usage))
 
 				if len(info.Examples) > 0 {
@@ -67,6 +66,7 @@ func (hc *HelpCommand) Handle(ctx context.Context, msg *message.Message) error {
 					}
 				}
 				found = true
+
 				break
 			}
 		}

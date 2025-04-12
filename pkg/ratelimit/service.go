@@ -53,6 +53,7 @@ func (s *RateLimitService) Start() error {
 	s.cleaner.Register(s.limiter)
 	s.cleaner.Register(s.notifier)
 	s.running = true
+
 	return nil
 }
 
@@ -72,6 +73,7 @@ func (s *RateLimitService) Check(ctx context.Context, msg *message.Message) erro
 	result := s.limiter.Check(msg.Sender)
 	if result.Allowed {
 		s.notifier.Clear(msg.Sender)
+
 		return nil
 	}
 

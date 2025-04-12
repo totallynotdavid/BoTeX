@@ -69,5 +69,6 @@ func (m *Message) GetText() string {
 	if m.DocumentMessage != nil {
 		return m.DocumentMessage.GetCaption()
 	}
+
 	return ""
 }

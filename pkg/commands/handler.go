@@ -107,6 +107,7 @@ func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.
 		h.logger.Error("Unexpected error type", map[string]interface{}{
 			"error": err.Error(),
 		})
+
 		return
 	}
 
@@ -144,10 +145,12 @@ func (h *CommandHandler) executeCommand(ctx context.Context, cmdName string, msg
 			"error":   err.Error(),
 		})
 		_ = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "❌")
+
 		return err
 	}
 
 	_ = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "✅")
+
 	return nil
 }
 
@@ -163,6 +166,7 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 
 	if err := h.rateService.Check(ctx, msg); err != nil {
 		h.handleRateLimitError(ctx, msg, err)
+
 		return
 	}
 
@@ -179,6 +183,7 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 		})
 		_ = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
 		_ = h.messageSender.SendText(ctx, msg.Recipient, "Too many concurrent requests. Please try again later.")
+
 		return
 	}
 	defer release()

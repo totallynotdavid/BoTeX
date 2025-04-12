@@ -66,6 +66,7 @@ func (l *Logger) log(level string, msg string, data interface{}) {
 	jsonData, err := json.Marshal(entry)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error marshaling log entry: %v\n", err)
+
 		return
 	}
 

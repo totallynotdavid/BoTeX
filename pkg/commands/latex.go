@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,7 +13,6 @@ import (
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/message"
-
 	"go.mau.fi/whatsmeow"
 )
 
@@ -50,11 +50,11 @@ func (lc *LaTeXCommand) Info() CommandInfo {
 func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error {
 	latexCode := strings.TrimSpace(msg.Text)
 	if latexCode == "" {
-		return fmt.Errorf("empty LaTeX equation")
+		return errors.New("empty LaTeX equation")
 	}
 
 	if len(latexCode) > 1000 {
-		return fmt.Errorf("LaTeX code exceeds 1000 character limit")
+		return errors.New("LaTeX code exceeds 1000 character limit")
 	}
 
 	if err := lc.validateLatex(latexCode); err != nil {
@@ -66,9 +66,10 @@ func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error 
 
 	imgWebP, err := lc.renderLatex(renderCtx, latexCode)
 	if err != nil {
-		if renderCtx.Err() == context.DeadlineExceeded {
+		if errors.Is(renderCtx.Err(), context.DeadlineExceeded) {
 			return fmt.Errorf("LaTeX rendering timed out after %s", lc.renderTimeout)
 		}
+
 		return fmt.Errorf("rendering failed: %w", err)
 	}
 
@@ -82,6 +83,7 @@ func (lc *LaTeXCommand) validateLatex(code string) error {
 			return fmt.Errorf("disallowed LaTeX command: %s", cmd)
 		}
 	}
+
 	return nil
 }
 
@@ -90,13 +92,13 @@ func (lc *LaTeXCommand) execCommand(ctx context.Context, name string, cmd *exec.
 	output, err := cmd.CombinedOutput()
 	duration := time.Since(startTime)
 
-	lc.logger.Debug(fmt.Sprintf("%s completed", name), map[string]interface{}{
+	lc.logger.Debug(name+" completed", map[string]interface{}{
 		"duration_ms": duration.Milliseconds(),
 		"command":     cmd.String(),
 	})
 
 	if err != nil {
-		lc.logger.Error(fmt.Sprintf("%s failed", name), map[string]interface{}{
+		lc.logger.Error(name+" failed", map[string]interface{}{
 			"output":      string(output),
 			"error":       err.Error(),
 			"duration_ms": duration.Milliseconds(),
