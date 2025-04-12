@@ -19,9 +19,11 @@ type AutoCleaner struct {
 
 func NewAutoCleaner(interval time.Duration) *AutoCleaner {
 	return &AutoCleaner{
+		mu:          sync.Mutex{},
 		cleanables:  make([]Cleanable, 0),
 		ticker:      time.NewTicker(interval),
 		stopCleaner: make(chan struct{}),
+		isRunning:   false,
 	}
 }
 
