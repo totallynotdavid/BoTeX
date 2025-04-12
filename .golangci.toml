@@ -43,6 +43,11 @@ version = "2"
       "go.mau.fi/whatsmeow/types"
     ]
 
+    [linters.settings.revive]
+    rules = [
+      { name = "exported", disabled = true } # This enforces comments on exported functions
+    ]
+
 [formatters]
   enable = ["gofumpt", "goimports", "gci"]
   [formatters.settings.gci]
