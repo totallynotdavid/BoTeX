@@ -9,7 +9,8 @@ version = "2"
     "funlen",        # Function length (managed by cognitive complexity checks)
     "nestif",        # Nested ifs (covered by gocritic)
     "wsl",           # Whitespace (handled by gofumpt)
-    "gochecknoinits" # Init functions (sometimes necessary)
+    "gochecknoinits", # Init functions (sometimes necessary)
+    "exhaustruct"    # Enforces to pass all fields to a structure
   ]
 
   [linters.settings]
