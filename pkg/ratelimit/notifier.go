@@ -10,51 +10,43 @@ import (
 type Notifier struct {
 	mu           sync.RWMutex
 	notifiedTime map[types.JID]time.Time
-	notifyPeriod time.Duration
+	cooldown     time.Duration
 }
 
-func NewNotifier(notifyPeriod time.Duration) *Notifier {
+func NewNotifier(cooldown time.Duration) *Notifier {
 	return &Notifier{
 		notifiedTime: make(map[types.JID]time.Time),
-		notifyPeriod: notifyPeriod,
+		cooldown:     cooldown,
 	}
 }
 
-// ShouldNotify checks if a user should be notified about rate limiting
-// Returns true if this is the first notification within the notify period
 func (n *Notifier) ShouldNotify(user types.JID) bool {
 	n.mu.RLock()
-	notifyTime, exists := n.notifiedTime[user]
+	lastNotify, exists := n.notifiedTime[user]
 	n.mu.RUnlock()
 
-	// If no record exists or the notification period has elapsed, we should notify
-	shouldNotify := !exists || time.Since(notifyTime) > n.notifyPeriod
-
-	// If we should notify, record this notification
-	if shouldNotify {
+	if !exists || time.Since(lastNotify) > n.cooldown {
 		n.mu.Lock()
 		n.notifiedTime[user] = time.Now()
 		n.mu.Unlock()
+		return true
 	}
-
-	return shouldNotify
+	return false
 }
 
-// ClearNotification removes the notification status for a user
-func (n *Notifier) ClearNotification(user types.JID) {
+func (n *Notifier) Clear(user types.JID) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	delete(n.notifiedTime, user)
 }
 
-// Cleanup removes expired notification records
 func (n *Notifier) Cleanup() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	now := time.Now()
-	for user, notifyTime := range n.notifiedTime {
-		if now.Sub(notifyTime) > n.notifyPeriod {
+	for user, lastNotify := range n.notifiedTime {
+		if now.Sub(lastNotify) > n.cooldown {
 			delete(n.notifiedTime, user)
 		}
 	}

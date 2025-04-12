@@ -11,14 +11,9 @@ import (
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/message"
-
 	"go.mau.fi/whatsmeow"
 )
 
-// LaTeXCommand handles rendering LaTeX equations into images
-// Usage: !latex <equation>
-// Example: !latex x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
-// The command supports basic LaTeX math mode syntax and has a 1000 character limit.
 type LaTeXCommand struct {
 	config        *config.Config
 	messageSender *message.MessageSender
@@ -37,167 +32,98 @@ func (lc *LaTeXCommand) Name() string {
 	return "latex"
 }
 
-func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error {
-	text := msg.GetText()
-	if !strings.HasPrefix(text, "!latex") {
-		return nil
-	}
-
-	latexCode := strings.TrimSpace(strings.TrimPrefix(text, "!latex"))
-	if latexCode == "" {
-		return fmt.Errorf("empty LaTeX code")
-	}
-
-	if len(latexCode) > 1000 {
-		return fmt.Errorf("LaTeX code too long (max 1000 characters)")
-	}
-
-	// Sanitize input
-	if err := lc.validateLatex(latexCode); err != nil {
-		return err
-	}
-
-	imgWebP, err := lc.transformLatexToImage(latexCode)
-	if err != nil {
-		return fmt.Errorf("error generating image: %w", err)
-	}
-
-	// Validate image size
-	if int64(len(imgWebP)) > lc.config.MaxImageSize {
-		return fmt.Errorf("generated image too large (max %d bytes)", lc.config.MaxImageSize)
-	}
-
-	return lc.messageSender.SendImage(ctx, msg.Recipient, imgWebP, latexCode)
-}
-
-func (lc *LaTeXCommand) validateLatex(code string) error {
-	dangerousCommands := []string{
-		"\\input", "\\include", "\\write18", "\\openout", "\\read",
-		"\\catcode", "\\def", "\\let", "\\futurelet", "\\newhelp",
-		"\\uppercase", "\\lowercase", "\\relax", "\\aftergroup",
-		"\\afterassignment", "\\expandafter", "\\noexpand", "\\special",
-	}
-
-	for _, cmd := range dangerousCommands {
-		if strings.Contains(code, cmd) {
-			return fmt.Errorf("unsafe LaTeX command detected: %s", cmd)
-		}
-	}
-
-	return nil
-}
-
-func (lc *LaTeXCommand) cleanupTempDir(dir string) {
-	if err := os.RemoveAll(dir); err != nil {
-		lc.logger.Error("Failed to cleanup temp directory", map[string]interface{}{
-			"dir":   dir,
-			"error": err.Error(),
-		})
-	}
-}
-
-func (lc *LaTeXCommand) transformLatexToImage(latexCode string) ([]byte, error) {
-	tempDir, err := os.MkdirTemp(lc.config.TempDir, "latexbot")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp dir: %w", err)
-	}
-	defer lc.cleanupTempDir(tempDir)
-
-	latexDocument := fmt.Sprintf(latexTemplate, latexCode)
-	inputPath := filepath.Join(tempDir, "input.tex")
-	if err := os.WriteFile(inputPath, []byte(latexDocument), 0644); err != nil {
-		return nil, fmt.Errorf("failed to write latex file: %w", err)
-	}
-
-	cmd := exec.Command("pdflatex", "-output-directory", tempDir, "-jobname", "latex", inputPath)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("pdflatex failed: %s - %w", string(output), err)
-	}
-
-	pdfPath := filepath.Join(tempDir, "latex.pdf")
-	pngPath := filepath.Join(tempDir, "latex.png")
-	cmd = exec.Command("convert", "-density", "300", "-trim", "-background", "white",
-		"-alpha", "remove", "-border", "8x8", "-bordercolor", "white", pdfPath, "-quality", "100", pngPath)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("convert failed: %s - %w", string(output), err)
-	}
-
-	imgPNG, err := os.ReadFile(pngPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read output image: %w", err)
-	}
-
-	imgWebP, err := lc.convertPNGtoWebP(imgPNG)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert to webp: %w", err)
-	}
-
-	return imgWebP, nil
-}
-
-func (lc *LaTeXCommand) convertPNGtoWebP(pngData []byte) ([]byte, error) {
-	tempDir, err := os.MkdirTemp(lc.config.TempDir, "webpconv")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp dir: %w", err)
-	}
-	defer lc.cleanupTempDir(tempDir)
-
-	pngPath := filepath.Join(tempDir, "input.png")
-	if err := os.WriteFile(pngPath, pngData, 0644); err != nil {
-		return nil, fmt.Errorf("failed to write png file: %w", err)
-	}
-
-	webpPath := filepath.Join(tempDir, "output.webp")
-	cmd := exec.Command("convert", pngPath, webpPath)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("convert failed: %s - %w", string(output), err)
-	}
-
-	webpData, err := os.ReadFile(webpPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read output webp: %w", err)
-	}
-
-	return webpData, nil
-}
-
-const latexTemplate = `
-\documentclass[preview,border=2pt,convert={density=300,outext=.png}]{standalone}
-\usepackage{amsmath}
-\usepackage{amsfonts}
-\usepackage{physics}
-\usepackage{bm}
-\begin{document}
-
-\begin{align*}
-%s
-\end{align*}
-
-\end{document}
-`
-
 func (lc *LaTeXCommand) Info() CommandInfo {
 	return CommandInfo{
-		BriefDescription: "Render LaTeX equations into images",
-		Description:      "Renders LaTeX equations into images using math mode syntax.",
-		Usage:            "!latex <equation>",
-		Parameters: []string{
-			"*equation*: The LaTeX equation to render (max 1000 characters)",
-		},
+		Description: "Render LaTeX equations into images",
+		Usage:       "!latex <equation>",
 		Examples: []string{
 			"!latex x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}",
 			"!latex \\int_{a}^{b} f(x)\\,dx = F(b) - F(a)",
 		},
-		Notes: []string{
-			"Supports basic LaTeX math mode syntax",
-			"Maximum equation length is 1000 characters",
-		},
 	}
 }
 
-func (lc *LaTeXCommand) Help() string {
-	return "Renders LaTeX equations into images.\n" +
-		"Usage: !latex <equation>\n" +
-		"Example: !latex x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}\n" +
-		"Supports basic LaTeX math mode syntax. Maximum 1000 characters."
+func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error {
+	latexCode := strings.TrimSpace(msg.Text)
+	if latexCode == "" {
+		return fmt.Errorf("empty LaTeX equation")
+	}
+
+	if len(latexCode) > 1000 {
+		return fmt.Errorf("LaTeX code exceeds 1000 character limit")
+	}
+
+	if err := lc.validateLatex(latexCode); err != nil {
+		return err
+	}
+
+	imgWebP, err := lc.renderLatex(latexCode)
+	if err != nil {
+		return fmt.Errorf("rendering failed: %w", err)
+	}
+
+	return lc.messageSender.SendImage(ctx, msg.Recipient, imgWebP, "LaTeX Render")
+}
+
+func (lc *LaTeXCommand) validateLatex(code string) error {
+	blacklist := []string{"\\input", "\\include", "\\write18", "\\def", "\\let"}
+	for _, cmd := range blacklist {
+		if strings.Contains(code, cmd) {
+			return fmt.Errorf("disallowed LaTeX command: %s", cmd)
+		}
+	}
+	return nil
+}
+
+func (lc *LaTeXCommand) renderLatex(code string) ([]byte, error) {
+	tempDir, err := os.MkdirTemp(lc.config.TempDir, "latex-")
+	if err != nil {
+		return nil, fmt.Errorf("temp dir creation failed: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	texPath := filepath.Join(tempDir, "equation.tex")
+	if err := os.WriteFile(texPath, []byte(lc.createDocument(code)), 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write tex file: %w", err)
+	}
+
+	if output, err := exec.Command("pdflatex", "-output-directory", tempDir, texPath).CombinedOutput(); err != nil {
+		lc.logger.Error("LaTeX compilation failed", map[string]interface{}{
+			"output": string(output),
+			"error":  err.Error(),
+		})
+		return nil, fmt.Errorf("LaTeX compilation error")
+	}
+
+	// Convert PDF to PNG
+	pdfPath := filepath.Join(tempDir, "equation.pdf")
+	pngPath := filepath.Join(tempDir, "equation.png")
+	if output, err := exec.Command("convert", "-density", "300", pdfPath, "-quality", "90", pngPath).CombinedOutput(); err != nil {
+		lc.logger.Error("Image conversion failed", map[string]interface{}{
+			"output": string(output),
+			"error":  err.Error(),
+		})
+		return nil, fmt.Errorf("image conversion error")
+	}
+
+	// Convert PNG to WebP
+	webpPath := filepath.Join(tempDir, "equation.webp")
+	if output, err := exec.Command("cwebp", pngPath, "-o", webpPath).CombinedOutput(); err != nil {
+		lc.logger.Error("WebP conversion failed", map[string]interface{}{
+			"output": string(output),
+			"error":  err.Error(),
+		})
+		return nil, fmt.Errorf("WebP conversion error")
+	}
+
+	return os.ReadFile(webpPath)
+}
+
+func (lc *LaTeXCommand) createDocument(content string) string {
+	return `\documentclass[preview]{standalone}
+\usepackage{amsmath,amssymb,amsfonts}
+\begin{document}
+\thispagestyle{empty}
+` + content + `
+\end{document}`
 }

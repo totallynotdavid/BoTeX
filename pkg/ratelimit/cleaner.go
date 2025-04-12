@@ -18,29 +18,24 @@ type AutoCleaner struct {
 }
 
 func NewAutoCleaner(interval time.Duration) *AutoCleaner {
-	cleaner := &AutoCleaner{
+	return &AutoCleaner{
 		cleanables:  make([]Cleanable, 0),
 		ticker:      time.NewTicker(interval),
 		stopCleaner: make(chan struct{}),
 	}
-	return cleaner
 }
 
-// Register adds a cleanable object to be automatically cleaned
 func (c *AutoCleaner) Register(cleanable Cleanable) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.cleanables = append(c.cleanables, cleanable)
-
-	// Start the cleaner if it's not already running
 	if !c.isRunning {
 		go c.runCleanup()
 		c.isRunning = true
 	}
 }
 
-// Stop halts the periodic cleanup
 func (c *AutoCleaner) Stop() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -52,7 +47,6 @@ func (c *AutoCleaner) Stop() {
 	}
 }
 
-// CleanAll triggers cleanup for all registered objects
 func (c *AutoCleaner) CleanAll() {
 	c.mu.Lock()
 	cleanables := make([]Cleanable, len(c.cleanables))
@@ -64,7 +58,6 @@ func (c *AutoCleaner) CleanAll() {
 	}
 }
 
-// runCleanup runs the cleanup loop
 func (c *AutoCleaner) runCleanup() {
 	for {
 		select {

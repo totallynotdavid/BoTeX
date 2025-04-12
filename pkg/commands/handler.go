@@ -7,31 +7,19 @@ import (
 	"strings"
 	"time"
 
-	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/types"
-	"go.mau.fi/whatsmeow/types/events"
-
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/message"
 	"botex/pkg/ratelimit"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/types/events"
 )
 
 var (
-	ErrRateLimitExceeded   = errors.New("rate limit exceeded")
 	ErrTooManyConcurrent   = errors.New("too many concurrent commands")
 	ErrCommandNotFound     = errors.New("command not found")
 	ErrInvalidCommandInput = errors.New("invalid command input")
 )
-
-type CommandInfo struct {
-	BriefDescription string
-	Description      string
-	Usage            string
-	Parameters       []string
-	Examples         []string
-	Notes            []string
-}
 
 // Command is an interface that all commands must implement
 type Command interface {
@@ -40,130 +28,105 @@ type Command interface {
 	Info() CommandInfo
 }
 
-// CommandHandler processes incoming messages and routes them to command implementations
+type CommandInfo struct {
+	Description string
+	Usage       string
+	Examples    []string
+}
+
 type CommandHandler struct {
 	client        *whatsmeow.Client
 	commands      map[string]Command
 	config        *config.Config
 	messageSender *message.MessageSender
 	logger        *logger.Logger
-	rateManager   *ratelimit.Manager
+	rateService   *ratelimit.RateLimitService
 	semaphore     chan struct{}
 }
 
-func NewCommandHandler(client *whatsmeow.Client, config *config.Config) *CommandHandler {
-	handler := &CommandHandler{
+func NewCommandHandler(client *whatsmeow.Client, config *config.Config) (*CommandHandler, error) {
+	// Initialize rate limiting components
+	limiter := ratelimit.NewLimiter(
+		config.RateLimit.Requests,
+		config.RateLimit.Period,
+	)
+	notifier := ratelimit.NewNotifier(
+		config.RateLimit.NotificationCooldown,
+	)
+	cleaner := ratelimit.NewAutoCleaner(
+		config.RateLimit.CleanupInterval,
+	)
+
+	rateService := ratelimit.NewRateLimitService(
+		limiter,
+		notifier,
+		cleaner,
+		logger.NewLogger(logger.INFO),
+	)
+
+	// Start the service
+	if err := rateService.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start rate limiter: %w", err)
+	}
+
+	return &CommandHandler{
 		client:        client,
 		commands:      make(map[string]Command),
 		config:        config,
 		messageSender: message.NewMessageSender(client),
 		logger:        logger.NewLogger(logger.INFO),
-		rateManager:   ratelimit.NewManager(config.RateLimit.Requests, config.RateLimit.Period),
+		rateService:   rateService,
 		semaphore:     make(chan struct{}, config.MaxConcurrent),
-	}
-
-	return handler
+	}, nil
 }
 
 func (h *CommandHandler) Close() {
-	h.rateManager.Stop()
+	h.rateService.Stop()
 }
 
 func (h *CommandHandler) RegisterCommand(cmd Command) {
 	h.commands[cmd.Name()] = cmd
 }
 
-// RegisterDefaultCommands registers the standard set of commands
-func (h *CommandHandler) RegisterDefaultCommands() {
-	latexCmd := NewLaTeXCommand(h.client, h.config)
-
-	// Register all commands
-	h.RegisterCommand(latexCmd)
-	h.RegisterCommand(NewHelpCommand(h.client, h.config, []Command{latexCmd}))
-}
-
-func (h *CommandHandler) sendReaction(ctx context.Context, recipient types.JID, messageID string, emoji string) error {
-	err := h.messageSender.SendReaction(ctx, recipient, messageID, emoji)
-	if err != nil {
-		h.logger.Error("Failed to send reaction", map[string]interface{}{
-			"recipient": recipient,
-			"emoji":     emoji,
-			"error":     err.Error(),
-		})
-	}
-	return err
-}
-
-func (h *CommandHandler) sendText(ctx context.Context, recipient types.JID, text string) error {
-	err := h.messageSender.SendText(ctx, recipient, text)
-	if err != nil {
-		h.logger.Error("Failed to send text message", map[string]interface{}{
-			"recipient": recipient,
-			"error":     err.Error(),
-		})
-	}
-	return err
-}
-
-// Extracts the command name and arguments from the message text
 func (h *CommandHandler) parseCommand(text string) (string, string, bool) {
 	if !strings.HasPrefix(text, "!") {
 		return "", "", false
 	}
 
-	// Remove the ! prefix and split into parts
 	parts := strings.Fields(text[1:])
 	if len(parts) == 0 {
 		return "", "", false
 	}
 
-	commandName := parts[0]
-	args := ""
-	if len(parts) > 1 {
-		args = strings.Join(parts[1:], " ")
-	}
-
-	return commandName, args, true
+	return parts[0], strings.Join(parts[1:], " "), true
 }
 
-// Checks if a user is rate limited and sends notifications if needed
-func (h *CommandHandler) handleRateLimit(ctx context.Context, msg *message.Message) error {
-	result := h.rateManager.Limiter.Check(msg.Sender)
-
-	if !result.Allowed {
-		h.logger.Warn("Rate limit exceeded", map[string]interface{}{
-			"sender":     msg.Sender,
-			"resetAfter": result.ResetAfter,
+func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.Message, err error) {
+	var rateErr *ratelimit.RateLimitError
+	if !errors.As(err, &rateErr) {
+		h.logger.Error("Unexpected error type", map[string]interface{}{
+			"error": err.Error(),
 		})
-
-		// Only notify if we haven't notified this user recently
-		if h.rateManager.Notifier.ShouldNotify(msg.Sender) {
-			_ = h.sendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
-			waitMsg := fmt.Sprintf("Rate limit exceeded. Please wait about %d seconds before sending more commands.",
-				int(result.ResetAfter.Seconds()))
-			_ = h.sendText(ctx, msg.Recipient, waitMsg)
-		}
-		return ErrRateLimitExceeded
+		return
 	}
 
-	h.rateManager.Notifier.ClearNotification(msg.Sender)
-	return nil
+	// Always send reaction for immediate feedback
+	_ = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
+
+	if rateErr.Notify {
+		waitMsg := fmt.Sprintf("Too many requests. Please wait %d seconds.",
+			int(rateErr.ResetAfter.Seconds()))
+		_ = h.messageSender.SendText(ctx, msg.Recipient, waitMsg)
+	}
 }
 
-func (h *CommandHandler) acquireSemaphore(ctx context.Context, msg *message.Message) (release func(), err error) {
+func (h *CommandHandler) acquireSemaphore(ctx context.Context) (func(), error) {
 	select {
 	case h.semaphore <- struct{}{}:
 		return func() { <-h.semaphore }, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
-		h.logger.Warn("Too many concurrent commands", map[string]interface{}{
-			"sender": msg.Sender,
-		})
-
-		_ = h.sendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
-		_ = h.sendText(ctx, msg.Recipient, "Too many commands being processed. Please wait a moment.")
-
 		return nil, ErrTooManyConcurrent
 	}
 }
@@ -174,66 +137,61 @@ func (h *CommandHandler) executeCommand(ctx context.Context, cmdName string, msg
 		return ErrCommandNotFound
 	}
 
-	err := cmd.Handle(ctx, msg)
-	if err != nil {
-		h.logger.Error("Error handling command", map[string]interface{}{
+	if err := cmd.Handle(ctx, msg); err != nil {
+		h.logger.Error("Command execution failed", map[string]interface{}{
 			"command": cmdName,
 			"sender":  msg.Sender,
 			"error":   err.Error(),
 		})
-
-		_ = h.sendReaction(ctx, msg.Recipient, msg.MessageID, "❌")
-		_ = h.sendText(ctx, msg.Recipient, fmt.Sprintf("Error executing command: %v", err))
+		_ = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "❌")
 		return err
 	}
 
-	h.logger.Info("Command executed successfully", map[string]interface{}{
-		"command": cmdName,
-		"sender":  msg.Sender,
-	})
-
-	_ = h.sendReaction(ctx, msg.Recipient, msg.MessageID, "✅")
+	_ = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "✅")
 	return nil
 }
 
 func (h *CommandHandler) HandleEvent(evt interface{}) {
-	switch v := evt.(type) {
-	case *events.Message:
-		msg := message.NewMessage(v)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+	msgEvent, ok := evt.(*events.Message)
+	if !ok {
+		return
+	}
 
-		h.logger.Debug("Received message", map[string]interface{}{
-			"sender":    msg.Sender,
-			"recipient": msg.Recipient,
-			"is_group":  msg.IsGroup,
-			"text":      msg.GetText(),
+	msg := message.NewMessage(msgEvent)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := h.rateService.Check(ctx, msg); err != nil {
+		h.handleRateLimitError(ctx, msg, err)
+		return
+	}
+
+	cmdName, args, isCommand := h.parseCommand(msg.GetText())
+	if !isCommand {
+		return
+	}
+
+	// Acquire concurrency slot
+	release, err := h.acquireSemaphore(ctx)
+	if err != nil {
+		h.logger.Warn("Concurrency limit exceeded", map[string]interface{}{
+			"sender": msg.Sender,
 		})
+		_ = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
+		_ = h.messageSender.SendText(ctx, msg.Recipient, "Too many concurrent requests. Please try again later.")
+		return
+	}
+	defer release()
 
-		text := msg.GetText()
-		commandName, args, hasCommand := h.parseCommand(text)
+	// Update message with parsed arguments
+	msg.Text = args
 
-		// Skip if not a command
-		if !hasCommand {
-			return
-		}
-
-		// Check rate limit
-		if err := h.handleRateLimit(ctx, msg); err != nil {
-			return
-		}
-
-		// Acquire semaphore for concurrency control
-		release, err := h.acquireSemaphore(ctx, msg)
-		if err != nil {
-			return
-		}
-		defer release()
-
-		// Set the command arguments in the message
-		msg.Text = args
-
-		// Execute the command
-		_ = h.executeCommand(ctx, commandName, msg)
+	// Execute command
+	if err := h.executeCommand(ctx, cmdName, msg); err != nil {
+		h.logger.Error("Command handling failed", map[string]interface{}{
+			"command": cmdName,
+			"sender":  msg.Sender,
+			"error":   err.Error(),
+		})
 	}
 }

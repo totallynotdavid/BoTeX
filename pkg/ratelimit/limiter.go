@@ -19,15 +19,14 @@ type Limiter struct {
 	period      time.Duration
 }
 
-func NewLimiter(requests int, period time.Duration) *Limiter {
+func NewLimiter(maxRequests int, period time.Duration) *Limiter {
 	return &Limiter{
 		requests:    make(map[types.JID][]time.Time),
-		maxRequests: requests,
+		maxRequests: maxRequests,
 		period:      period,
 	}
 }
 
-// Check performs a rate limit check for a user
 func (l *Limiter) Check(user types.JID) Result {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -35,33 +34,28 @@ func (l *Limiter) Check(user types.JID) Result {
 	now := time.Now()
 	requests := l.requests[user]
 
-	// Count valid requests and find earliest request time
+	// Filter valid requests and find earliest timestamp
 	var validRequests []time.Time
-	var earliestTime time.Time
-
+	var earliest time.Time
 	for _, t := range requests {
-		age := now.Sub(t)
-		if age <= l.period {
+		if now.Sub(t) <= l.period {
 			validRequests = append(validRequests, t)
-			if earliestTime.IsZero() || t.Before(earliestTime) {
-				earliestTime = t
+			if earliest.IsZero() || t.Before(earliest) {
+				earliest = t
 			}
 		}
 	}
 
-	// Calculate time until reset
-	var resetAfter time.Duration
-	if !earliestTime.IsZero() {
-		resetAfter = l.period - now.Sub(earliestTime)
+	// Calculate reset time
+	resetAfter := l.period
+	if len(validRequests) > 0 {
+		resetAfter = l.period - now.Sub(earliest)
 		if resetAfter < 0 {
 			resetAfter = 0
 		}
 	}
 
-	// Check if rate limited
 	allowed := len(validRequests) < l.maxRequests
-
-	// If allowed, record this request
 	if allowed {
 		validRequests = append(validRequests, now)
 		l.requests[user] = validRequests
@@ -77,23 +71,22 @@ func (l *Limiter) Allow(user types.JID) bool {
 	return l.Check(user).Allowed
 }
 
-// Cleanup removes expired request records
 func (l *Limiter) Cleanup() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	now := time.Now()
 	for user, requests := range l.requests {
-		var validRequests []time.Time
+		var valid []time.Time
 		for _, t := range requests {
 			if now.Sub(t) <= l.period {
-				validRequests = append(validRequests, t)
+				valid = append(valid, t)
 			}
 		}
-		if len(validRequests) == 0 {
+		if len(valid) == 0 {
 			delete(l.requests, user)
 		} else {
-			l.requests[user] = validRequests
+			l.requests[user] = valid
 		}
 	}
 }
