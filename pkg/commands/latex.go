@@ -7,10 +7,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/message"
+
 	"go.mau.fi/whatsmeow"
 )
 
@@ -18,6 +20,7 @@ type LaTeXCommand struct {
 	config        *config.Config
 	messageSender *message.MessageSender
 	logger        *logger.Logger
+	renderTimeout time.Duration
 }
 
 func NewLaTeXCommand(client *whatsmeow.Client, config *config.Config) *LaTeXCommand {
@@ -25,6 +28,7 @@ func NewLaTeXCommand(client *whatsmeow.Client, config *config.Config) *LaTeXComm
 		config:        config,
 		messageSender: message.NewMessageSender(client),
 		logger:        logger.NewLogger(logger.INFO),
+		renderTimeout: 45 * time.Second, // Timeout for the entire rendering process
 	}
 }
 
@@ -57,8 +61,14 @@ func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error 
 		return err
 	}
 
-	imgWebP, err := lc.renderLatex(latexCode)
+	renderCtx, cancel := context.WithTimeout(ctx, lc.renderTimeout)
+	defer cancel()
+
+	imgWebP, err := lc.renderLatex(renderCtx, latexCode)
 	if err != nil {
+		if renderCtx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("LaTeX rendering timed out after %s", lc.renderTimeout)
+		}
 		return fmt.Errorf("rendering failed: %w", err)
 	}
 
@@ -75,48 +85,94 @@ func (lc *LaTeXCommand) validateLatex(code string) error {
 	return nil
 }
 
-func (lc *LaTeXCommand) renderLatex(code string) ([]byte, error) {
+func (lc *LaTeXCommand) execCommand(ctx context.Context, name string, cmd *exec.Cmd) error {
+	startTime := time.Now()
+	output, err := cmd.CombinedOutput()
+	duration := time.Since(startTime)
+
+	lc.logger.Debug(fmt.Sprintf("%s completed", name), map[string]interface{}{
+		"duration_ms": duration.Milliseconds(),
+		"command":     cmd.String(),
+	})
+
+	if err != nil {
+		lc.logger.Error(fmt.Sprintf("%s failed", name), map[string]interface{}{
+			"output":      string(output),
+			"error":       err.Error(),
+			"duration_ms": duration.Milliseconds(),
+			"command":     cmd.String(),
+		})
+
+		// Check if the context has been canceled or timed out
+		if ctx.Err() != nil {
+			return fmt.Errorf("%s was interrupted: %w", name, ctx.Err())
+		}
+
+		return fmt.Errorf("%s failed: %w", name, err)
+	}
+
+	return nil
+}
+
+func (lc *LaTeXCommand) renderLatex(ctx context.Context, code string) ([]byte, error) {
+	startTime := time.Now()
+
 	tempDir, err := os.MkdirTemp(lc.config.TempDir, "latex-")
 	if err != nil {
 		return nil, fmt.Errorf("temp dir creation failed: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			lc.logger.Error("Failed to clean up temp directory", map[string]interface{}{
+				"error":   err.Error(),
+				"tempDir": tempDir,
+			})
+		}
+	}()
 
 	texPath := filepath.Join(tempDir, "equation.tex")
 	if err := os.WriteFile(texPath, []byte(lc.createDocument(code)), 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write tex file: %w", err)
 	}
 
-	if output, err := exec.Command("pdflatex", "-output-directory", tempDir, texPath).CombinedOutput(); err != nil {
-		lc.logger.Error("LaTeX compilation failed", map[string]interface{}{
-			"output": string(output),
-			"error":  err.Error(),
-		})
-		return nil, fmt.Errorf("LaTeX compilation error")
-	}
-
-	// Convert PDF to PNG
+	// Define output paths
 	pdfPath := filepath.Join(tempDir, "equation.pdf")
 	pngPath := filepath.Join(tempDir, "equation.png")
-	if output, err := exec.Command("convert", "-density", "300", pdfPath, "-quality", "90", pngPath).CombinedOutput(); err != nil {
-		lc.logger.Error("Image conversion failed", map[string]interface{}{
-			"output": string(output),
-			"error":  err.Error(),
-		})
-		return nil, fmt.Errorf("image conversion error")
-	}
-
-	// Convert PNG to WebP
 	webpPath := filepath.Join(tempDir, "equation.webp")
-	if output, err := exec.Command("cwebp", pngPath, "-o", webpPath).CombinedOutput(); err != nil {
-		lc.logger.Error("WebP conversion failed", map[string]interface{}{
-			"output": string(output),
-			"error":  err.Error(),
-		})
-		return nil, fmt.Errorf("WebP conversion error")
+
+	// Step 1: Compile LaTeX to PDF
+	pdflatexCmd := exec.CommandContext(ctx, "pdflatex", "-output-directory", tempDir, texPath)
+	pdflatexCmd.Env = append(os.Environ(), "TEXMFOUTPUT="+tempDir) // Ensure LaTeX writes to temp dir
+	if err := lc.execCommand(ctx, "LaTeX compilation", pdflatexCmd); err != nil {
+		return nil, err
 	}
 
-	return os.ReadFile(webpPath)
+	// Step 2: Convert PDF to PNG
+	convertCmd := exec.CommandContext(ctx, "convert", "-density", "300", pdfPath, "-quality", "90", pngPath)
+	if err := lc.execCommand(ctx, "PDF to PNG conversion", convertCmd); err != nil {
+		return nil, err
+	}
+
+	// Step 3: Convert PNG to WebP
+	cwebpCmd := exec.CommandContext(ctx, "cwebp", pngPath, "-o", webpPath)
+	if err := lc.execCommand(ctx, "PNG to WebP conversion", cwebpCmd); err != nil {
+		return nil, err
+	}
+
+	// Read the WebP file
+	webpData, err := os.ReadFile(webpPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read output image: %w", err)
+	}
+
+	// Log total processing time
+	totalDuration := time.Since(startTime)
+	lc.logger.Info("LaTeX rendering completed", map[string]interface{}{
+		"total_duration_ms": totalDuration.Milliseconds(),
+		"equation_length":   len(code),
+	})
+
+	return webpData, nil
 }
 
 func (lc *LaTeXCommand) createDocument(content string) string {
