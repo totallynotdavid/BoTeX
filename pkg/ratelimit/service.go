@@ -11,7 +11,10 @@ import (
 	"go.mau.fi/whatsmeow/types"
 )
 
-var ErrRateLimitExceeded = errors.New("rate limit exceeded")
+var (
+	ErrRateLimitExceeded = errors.New("rate limit exceeded")
+	ErrServiceNotRunning = errors.New("rate limit service not running")
+)
 
 type RateLimitError struct {
 	User       types.JID
@@ -42,6 +45,7 @@ func NewRateLimitService(
 		notifier: notifier,
 		cleaner:  cleaner,
 		logger:   logger,
+		running:  false,
 	}
 }
 
@@ -67,7 +71,7 @@ func (s *RateLimitService) Stop() {
 
 func (s *RateLimitService) Check(ctx context.Context, msg *message.Message) error {
 	if !s.running {
-		return errors.New("rate limit service not running")
+		return ErrServiceNotRunning
 	}
 
 	result := s.limiter.Check(msg.Sender)
