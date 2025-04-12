@@ -18,6 +18,8 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
+var ErrQRLoginTimeout = errors.New("QR login timed out")
+
 type Bot struct {
 	client          *whatsmeow.Client
 	commandHandler  *commands.CommandHandler
@@ -27,24 +29,22 @@ type Bot struct {
 }
 
 func NewBot(cfg *config.Config) (*Bot, error) {
-	// Initialize database
+	logLevel := parseLogLevel(cfg.LogLevel)
+
 	dbLog := waLog.Stdout("Database", cfg.LogLevel, false)
 	container, err := sqlstore.New("sqlite3", cfg.DBPath, dbLog)
 	if err != nil {
 		return nil, fmt.Errorf("database initialization failed: %w", err)
 	}
 
-	// Get device store
 	deviceStore, err := container.GetFirstDevice()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device store: %w", err)
 	}
 
-	// Create WhatsApp client
 	clientLog := waLog.Stdout("Client", cfg.LogLevel, false)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 
-	// Create command handler
 	commandHandler, err := commands.NewCommandHandler(client, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create command handler: %w", err)
@@ -54,9 +54,22 @@ func NewBot(cfg *config.Config) (*Bot, error) {
 		client:          client,
 		commandHandler:  commandHandler,
 		config:          cfg,
-		logger:          logger.NewLogger(logger.INFO),
+		logger:          logger.NewLogger(logLevel),
 		shutdownSignals: make(chan os.Signal, 1),
 	}, nil
+}
+
+func parseLogLevel(levelStr string) logger.LogLevel {
+	switch levelStr {
+	case "DEBUG":
+		return logger.DEBUG
+	case "WARN":
+		return logger.WARN
+	case "ERROR":
+		return logger.ERROR
+	default:
+		return logger.INFO
+	}
 }
 
 func (b *Bot) Start() error {
@@ -90,7 +103,7 @@ func (b *Bot) handleQRLogin() error {
 
 			return nil
 		case "timeout":
-			return errors.New("QR login timed out")
+			return ErrQRLoginTimeout
 		}
 	}
 
@@ -120,19 +133,24 @@ func (b *Bot) Shutdown() {
 
 func main() {
 	cfg := config.Load()
+
+	tempLogger := logger.NewLogger(parseLogLevel(cfg.LogLevel))
+
 	if err := cfg.Validate(); err != nil {
-		fmt.Printf("Invalid configuration: %v\n", err)
+		tempLogger.Error("Invalid configuration", map[string]interface{}{
+			"error": err.Error(),
+		})
 		os.Exit(1)
 	}
 
-	// Initialize bot
 	bot, err := NewBot(cfg)
 	if err != nil {
-		fmt.Printf("Failed to initialize bot: %v\n", err)
+		tempLogger.Error("Failed to initialize bot", map[string]interface{}{
+			"error": err.Error(),
+		})
 		os.Exit(1)
 	}
 
-	// Start the bot
 	if err := bot.Start(); err != nil {
 		bot.logger.Error("Failed to start bot", map[string]interface{}{
 			"error": err.Error(),
@@ -140,9 +158,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Handle shutdown signals
 	signal.Notify(bot.shutdownSignals, os.Interrupt, syscall.SIGTERM)
 	<-bot.shutdownSignals
-
 	bot.Shutdown()
 }
