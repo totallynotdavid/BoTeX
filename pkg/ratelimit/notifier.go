@@ -15,6 +15,7 @@ type Notifier struct {
 
 func NewNotifier(cooldown time.Duration) *Notifier {
 	return &Notifier{
+		mu:           sync.RWMutex{},
 		notifiedTime: make(map[types.JID]time.Time),
 		cooldown:     cooldown,
 	}

@@ -21,6 +21,7 @@ type Limiter struct {
 
 func NewLimiter(maxRequests int, period time.Duration) *Limiter {
 	return &Limiter{
+		mu:          sync.Mutex{},
 		requests:    make(map[types.JID][]time.Time),
 		maxRequests: maxRequests,
 		period:      period,
