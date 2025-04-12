@@ -26,7 +26,7 @@ func (ms *MessageSender) SendText(ctx context.Context, recipient types.JID, text
 		Conversation: proto.String(text),
 	})
 
-	return err
+	return fmt.Errorf("failed to send text message: %w", err)
 }
 
 func (ms *MessageSender) SendImage(ctx context.Context, recipient types.JID, imageData []byte, caption string) error {
@@ -53,7 +53,7 @@ func (ms *MessageSender) SendImage(ctx context.Context, recipient types.JID, ima
 		ImageMessage: imageMsg,
 	})
 
-	return err
+	return fmt.Errorf("failed to send image message: %w", err)
 }
 
 func (ms *MessageSender) SendSticker(ctx context.Context, recipient types.JID, stickerData []byte) error {
@@ -75,7 +75,7 @@ func (ms *MessageSender) SendSticker(ctx context.Context, recipient types.JID, s
 		StickerMessage: stickerMsg,
 	})
 
-	return err
+	return fmt.Errorf("failed to send sticker message: %w", err)
 }
 
 func (ms *MessageSender) SendDocument(ctx context.Context, recipient types.JID, documentData []byte, filename string, mimetype string) error {
@@ -99,7 +99,7 @@ func (ms *MessageSender) SendDocument(ctx context.Context, recipient types.JID, 
 		DocumentMessage: documentMsg,
 	})
 
-	return err
+	return fmt.Errorf("failed to send document message: %w", err)
 }
 
 func (ms *MessageSender) SendVideo(ctx context.Context, recipient types.JID, videoData []byte, caption string) error {
@@ -126,7 +126,7 @@ func (ms *MessageSender) SendVideo(ctx context.Context, recipient types.JID, vid
 		VideoMessage: videoMsg,
 	})
 
-	return err
+	return fmt.Errorf("failed to send video message: %w", err)
 }
 
 func (ms *MessageSender) SendAudio(ctx context.Context, recipient types.JID, audioData []byte) error {
@@ -149,7 +149,7 @@ func (ms *MessageSender) SendAudio(ctx context.Context, recipient types.JID, aud
 		AudioMessage: audioMsg,
 	})
 
-	return err
+	return fmt.Errorf("failed to send audio message: %w", err)
 }
 
 func (ms *MessageSender) SendReaction(ctx context.Context, recipient types.JID, messageID string, emoji string) error {
@@ -165,5 +165,5 @@ func (ms *MessageSender) SendReaction(ctx context.Context, recipient types.JID, 
 		},
 	})
 
-	return err
+	return fmt.Errorf("failed to send reaction message: %w", err)
 }
