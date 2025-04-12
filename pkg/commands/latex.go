@@ -369,12 +369,20 @@ func (lc *LaTeXCommand) executeWebPConversion(ctx context.Context, renderContext
 }
 
 func (lc *LaTeXCommand) readOutputFileSecurely(filePath string) ([]byte, error) {
-	directory := filepath.Dir(filePath)
-	if containmentErr := validatePathContainment(directory, filePath); containmentErr != nil {
+	cleanPath := filepath.Clean(filePath)
+	directory := filepath.Dir(cleanPath)
+
+	if containmentErr := validatePathContainment(directory, cleanPath); containmentErr != nil {
 		return nil, fmt.Errorf("output path validation failed: %w", containmentErr)
 	}
 
-	content, readErr := os.ReadFile(filePath)
+	if fileInfo, statErr := os.Stat(cleanPath); statErr != nil {
+		return nil, fmt.Errorf("%w: %w", ErrReadOutputImage, statErr)
+	} else if !fileInfo.Mode().IsRegular() {
+		return nil, fmt.Errorf("%w: not a regular file", ErrReadOutputImage)
+	}
+
+	content, readErr := os.ReadFile(cleanPath)
 	if readErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrReadOutputImage, readErr)
 	}
