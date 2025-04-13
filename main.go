@@ -50,6 +50,12 @@ func NewBot(cfg *config.Config) (*Bot, error) {
 		return nil, fmt.Errorf("failed to create command handler: %w", err)
 	}
 
+	latexCmd := commands.NewLaTeXCommand(client, cfg)
+	commandHandler.RegisterCommand(latexCmd)
+
+	helpCmd := commands.NewHelpCommand(client, cfg, []commands.Command{latexCmd})
+	commandHandler.RegisterCommand(helpCmd)
+
 	return &Bot{
 		client:          client,
 		commandHandler:  commandHandler,
