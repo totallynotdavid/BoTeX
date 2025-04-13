@@ -1,6 +1,6 @@
 # BoTeX
 
-[![CodeQL](https://github.com/totallynotdavid/BoTeX/actions/workflows/codeql.yml/badge.svg)](https://github.com/totallynotdavid/BoTeX/actions/workflows/codeql.yml)
+[![CodeQL](https://github.com/totallynotdavid/BoTeX/actions/workflows/codeql.yml/badge.svg)](https://github.com/totallynotdavid/BoTeX/actions/workflows/codeql.yml) [![lint-and-testing](https://github.com/totallynotdavid/BoTeX/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/totallynotdavid/BoTeX/actions/workflows/golangci-lint.yml)
 
 BoTeX is a WhatsApp bot that renders LaTeX equations into images. I created this project while learning Go, drawing inspiration from how [matterbridge](https://github.com/42wim/matterbridge) implements WhatsApp integration using the [whatsmeow](https://github.com/tulir/whatsmeow) library. While it currently has a limited set of commands (`!latex` for rendering equations and `!help` for viewing available commands), it serves as a simple example of building a WhatsApp bot in Go.
 
