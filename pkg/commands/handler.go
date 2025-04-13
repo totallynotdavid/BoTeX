@@ -11,6 +11,7 @@ import (
 	"botex/pkg/logger"
 	"botex/pkg/message"
 	"botex/pkg/ratelimit"
+
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -197,14 +198,13 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultCommandTimeout)
 	defer cancel()
 
-	if err := h.rateService.Check(ctx, msg); err != nil {
-		h.handleRateLimitError(ctx, msg, err)
-
+	cmdName, args, isCommand := h.parseCommand(msg.GetText())
+	if !isCommand {
 		return
 	}
 
-	cmdName, args, isCommand := h.parseCommand(msg.GetText())
-	if !isCommand {
+	if err := h.rateService.Check(ctx, msg); err != nil {
+		h.handleRateLimitError(ctx, msg, err)
 		return
 	}
 
