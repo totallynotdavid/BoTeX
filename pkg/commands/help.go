@@ -23,17 +23,19 @@ const (
 type HelpCommand struct {
 	config        *config.Config
 	messageSender *message.MessageSender
-	commands      []Command
+	handler       *CommandHandler
 	logger        *logger.Logger
 }
 
-func NewHelpCommand(client *whatsmeow.Client, config *config.Config, commands []Command) *HelpCommand {
-	return &HelpCommand{
-		config:        config,
-		messageSender: message.NewMessageSender(client),
-		commands:      commands,
-		logger:        logger.NewLogger(logger.INFO),
-	}
+func init() {
+	RegisterCommand(func(client *whatsmeow.Client, cfg *config.Config, handler *CommandHandler) Command {
+		return &HelpCommand{
+			config:        cfg,
+			messageSender: message.NewMessageSender(client),
+			handler:       handler,
+			logger:        logger.NewLogger(logger.INFO),
+		}
+	})
 }
 
 func (hc *HelpCommand) Name() string {
@@ -51,7 +53,6 @@ func (hc *HelpCommand) Info() CommandInfo {
 func (hc *HelpCommand) Handle(ctx context.Context, msg *message.Message) error {
 	args := strings.TrimSpace(msg.Text)
 	var helpText string
-
 	if args == "" {
 		helpText = hc.generateGeneralHelp()
 	} else {
@@ -69,34 +70,31 @@ func (hc *HelpCommand) Handle(ctx context.Context, msg *message.Message) error {
 func (hc *HelpCommand) generateGeneralHelp() string {
 	var builder strings.Builder
 	builder.WriteString(helpHeader)
-
-	for _, cmd := range hc.commands {
-		builder.WriteString(fmt.Sprintf("• *%s* - %s\n", cmd.Name(), cmd.Info().Description))
+	for _, cmd := range hc.handler.GetCommands() {
+		if cmd.Name() != "help" {
+			builder.WriteString(fmt.Sprintf("• *%s* - %s\n", cmd.Name(), cmd.Info().Description))
+		}
 	}
-
 	builder.WriteString(helpFooter)
 
 	return builder.String()
 }
 
 func (hc *HelpCommand) generateCommandHelp(cmdName string) (string, bool) {
-	for _, cmd := range hc.commands {
-		if cmd.Name() == cmdName {
-			return hc.buildCommandDetails(cmd), true
-		}
+	cmd, exists := hc.handler.commands[cmdName]
+	if !exists {
+		return "", false
 	}
 
-	return "", false
+	return hc.buildCommandDetails(cmd), true
 }
 
 func (hc *HelpCommand) buildCommandDetails(cmd Command) string {
 	var builder strings.Builder
 	info := cmd.Info()
-
 	builder.WriteString(fmt.Sprintf(commandDetailsHeader, cmd.Name()))
 	builder.WriteString(info.Description + "\n\n")
 	builder.WriteString(fmt.Sprintf(usagePrefix, info.Usage))
-
 	if len(info.Examples) > 0 {
 		builder.WriteString(examplesHeader)
 		for _, ex := range info.Examples {
