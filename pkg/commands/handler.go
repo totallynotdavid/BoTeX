@@ -91,7 +91,7 @@ func (h *CommandHandler) RegisterCommand(cmd Command) {
 	h.commands[cmd.Name()] = cmd
 }
 
-func (h *CommandHandler) parseCommand(text string) (cmdName string, args string, ok bool) {
+func (h *CommandHandler) parseCommand(text string) (cmdName, args string, ok bool) {
 	if !strings.HasPrefix(text, "!") {
 		return
 	}
