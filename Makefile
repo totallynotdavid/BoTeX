@@ -12,4 +12,4 @@ build:
 
 # Format & Lint
 lint:
-	golangci-lint fmt && golangci-lint run --fix
+	golangci-lint config verify && golangci-lint fmt && golangci-lint run --fix
