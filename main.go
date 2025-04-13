@@ -89,7 +89,11 @@ func (b *Bot) Start() error {
 }
 
 func (b *Bot) handleQRLogin() error {
-	qrChan, _ := b.client.GetQRChannel(context.Background())
+	qrChan, err := b.client.GetQRChannel(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to get QR channel: %w", err)
+	}
+
 	if err := b.client.Connect(); err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
