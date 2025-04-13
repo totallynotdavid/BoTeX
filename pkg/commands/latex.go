@@ -305,7 +305,7 @@ func (lc *LaTeXCommand) renderLatex(ctx context.Context, latexCode string) ([]by
 }
 
 func (lc *LaTeXCommand) writeLatexContent(renderContext *RenderContext, code string) error {
-	const latexTemplate = `\documentclass[preview,border=2pt,convert={density=300,outext=.png}]{standalone}
+	const latexTemplate = `\documentclass[preview]{standalone}
 \usepackage{amsmath,amssymb,amsfonts,physics}
 \begin{document}
 \thispagestyle{empty}
@@ -343,6 +343,9 @@ func (lc *LaTeXCommand) executePDFLatex(ctx context.Context, renderContext *Rend
 func (lc *LaTeXCommand) executeImageConversion(ctx context.Context, renderContext *RenderContext) error {
 	arguments := []string{
 		"-density", "300",
+		"-trim",
+		"-background", "white",
+		"-alpha", "remove",
 		renderContext.filePaths[allowedBaseFilename+".pdf"],
 		"-quality", "90",
 		renderContext.filePaths[allowedBaseFilename+".png"],
