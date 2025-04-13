@@ -78,7 +78,7 @@ func (ms *MessageSender) SendSticker(ctx context.Context, recipient types.JID, s
 	return fmt.Errorf("failed to send sticker message: %w", err)
 }
 
-func (ms *MessageSender) SendDocument(ctx context.Context, recipient types.JID, documentData []byte, filename string, mimetype string) error {
+func (ms *MessageSender) SendDocument(ctx context.Context, recipient types.JID, documentData []byte, filename, mimetype string) error {
 	resp, err := ms.client.Upload(ctx, documentData, whatsmeow.MediaDocument)
 	if err != nil {
 		return fmt.Errorf("failed to upload document: %w", err)
@@ -152,7 +152,7 @@ func (ms *MessageSender) SendAudio(ctx context.Context, recipient types.JID, aud
 	return fmt.Errorf("failed to send audio message: %w", err)
 }
 
-func (ms *MessageSender) SendReaction(ctx context.Context, recipient types.JID, messageID string, emoji string) error {
+func (ms *MessageSender) SendReaction(ctx context.Context, recipient types.JID, messageID, emoji string) error {
 	_, err := ms.client.SendMessage(ctx, recipient, &waE2E.Message{
 		ReactionMessage: &waE2E.ReactionMessage{
 			Key: &waCommon.MessageKey{

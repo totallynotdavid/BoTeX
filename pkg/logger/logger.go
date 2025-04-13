@@ -55,7 +55,7 @@ func (l *Logger) Error(msg string, data interface{}) {
 	}
 }
 
-func (l *Logger) log(level string, msg string, data interface{}) {
+func (l *Logger) log(level, msg string, data interface{}) {
 	entry := LogEntry{
 		Timestamp: time.Now(),
 		Level:     level,
