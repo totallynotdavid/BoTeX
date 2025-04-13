@@ -305,11 +305,13 @@ func (lc *LaTeXCommand) renderLatex(ctx context.Context, latexCode string) ([]by
 }
 
 func (lc *LaTeXCommand) writeLatexContent(renderContext *RenderContext, code string) error {
-	const latexTemplate = `\documentclass[preview]{standalone}
-\usepackage{amsmath,amssymb,amsfonts}
+	const latexTemplate = `\documentclass[preview,border=2pt,convert={density=300,outext=.png}]{standalone}
+\usepackage{amsmath,amssymb,amsfonts,physics}
 \begin{document}
 \thispagestyle{empty}
+\begin{align*}
 %s
+\end{align*}
 \end{document}`
 
 	content := fmt.Sprintf(latexTemplate, code)
