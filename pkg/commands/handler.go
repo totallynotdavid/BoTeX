@@ -26,7 +26,6 @@ var (
 	ErrInvalidCommandInput = errors.New("invalid command input")
 )
 
-// Command is an interface that all commands must implement.
 type Command interface {
 	Handle(ctx context.Context, msg *message.Message) error
 	Name() string
@@ -39,6 +38,22 @@ type CommandInfo struct {
 	Examples    []string
 }
 
+type CommandRegistry struct {
+	commands []Command
+	logger   *logger.Logger
+}
+
+func NewCommandRegistry() *CommandRegistry {
+	return &CommandRegistry{
+		commands: make([]Command, 0),
+		logger:   logger.NewLogger(logger.DEBUG),
+	}
+}
+
+func (r *CommandRegistry) Register(cmd Command) {
+	r.commands = append(r.commands, cmd)
+}
+
 type CommandHandler struct {
 	client        *whatsmeow.Client
 	commands      map[string]Command
@@ -49,7 +64,7 @@ type CommandHandler struct {
 	semaphore     chan struct{}
 }
 
-func NewCommandHandler(client *whatsmeow.Client, config *config.Config) (*CommandHandler, error) {
+func NewCommandHandler(client *whatsmeow.Client, config *config.Config, registry *CommandRegistry) (*CommandHandler, error) {
 	limiter := ratelimit.NewLimiter(
 		config.RateLimit.Requests,
 		config.RateLimit.Period,
@@ -60,7 +75,6 @@ func NewCommandHandler(client *whatsmeow.Client, config *config.Config) (*Comman
 	cleaner := ratelimit.NewAutoCleaner(
 		config.RateLimit.CleanupInterval,
 	)
-
 	rateService := ratelimit.NewRateLimitService(
 		limiter,
 		notifier,
@@ -72,7 +86,7 @@ func NewCommandHandler(client *whatsmeow.Client, config *config.Config) (*Comman
 		return nil, fmt.Errorf("failed to start rate limiter: %w", err)
 	}
 
-	return &CommandHandler{
+	handler := &CommandHandler{
 		client:        client,
 		commands:      make(map[string]Command),
 		config:        config,
@@ -80,27 +94,36 @@ func NewCommandHandler(client *whatsmeow.Client, config *config.Config) (*Comman
 		logger:        logger.NewLogger(logger.INFO),
 		rateService:   rateService,
 		semaphore:     make(chan struct{}, config.MaxConcurrent),
-	}, nil
+	}
+
+	for _, cmd := range registry.commands {
+		handler.commands[cmd.Name()] = cmd
+	}
+
+	return handler, nil
+}
+
+func (h *CommandHandler) GetCommands() []Command {
+	cmds := make([]Command, 0, len(h.commands))
+	for _, cmd := range h.commands {
+		cmds = append(cmds, cmd)
+	}
+
+	return cmds
 }
 
 func (h *CommandHandler) Close() {
 	h.rateService.Stop()
 }
 
-func (h *CommandHandler) RegisterCommand(cmd Command) {
-	h.commands[cmd.Name()] = cmd
-}
-
 func (h *CommandHandler) parseCommand(text string) (cmdName, args string, ok bool) {
 	if !strings.HasPrefix(text, "!") {
 		return
 	}
-
 	parts := strings.Fields(text[1:])
 	if len(parts) == 0 {
 		return
 	}
-
 	cmdName = parts[0]
 	args = strings.Join(parts[1:], " ")
 	ok = true

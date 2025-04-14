@@ -2,7 +2,7 @@
 
 # User Configuration
 scan_dirs=("pkg")
-ignore_paths=("")
+ignore_paths=("ratelimit")
 ignore_wildcards=("")
 root_files=("main.go")
 allowed_extensions=("go")

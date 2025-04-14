@@ -23,17 +23,31 @@ const (
 type HelpCommand struct {
 	config        *config.Config
 	messageSender *message.MessageSender
-	commands      []Command
+	handler       *CommandHandler
 	logger        *logger.Logger
 }
 
-func NewHelpCommand(client *whatsmeow.Client, config *config.Config, commands []Command) *HelpCommand {
+func NewHelpCommand(client *whatsmeow.Client, cfg *config.Config, handler *CommandHandler) *HelpCommand {
 	return &HelpCommand{
-		config:        config,
+		config:        cfg,
 		messageSender: message.NewMessageSender(client),
-		commands:      commands,
+		handler:       handler,
 		logger:        logger.NewLogger(logger.INFO),
 	}
+}
+
+/*
+SetHandler resolves a circular dependency in the command initialization sequence:
+
+1. HelpCommand is created first with a nil handler so it can be registered in CommandRegistry.
+2. CommandHandler is then created with the registry that already contains HelpCommand.
+3. HelpCommand requires CommandHandler to implement generateGeneralHelp() and generateCommandHelp().
+
+Without this method, we'd have a deadlock: HelpCommand depends on CommandHandler,
+but CommandHandler also needs HelpCommand in the registry.
+*/
+func (hc *HelpCommand) SetHandler(handler *CommandHandler) {
+	hc.handler = handler
 }
 
 func (hc *HelpCommand) Name() string {
@@ -69,30 +83,28 @@ func (hc *HelpCommand) Handle(ctx context.Context, msg *message.Message) error {
 func (hc *HelpCommand) generateGeneralHelp() string {
 	var builder strings.Builder
 	builder.WriteString(helpHeader)
-
-	for _, cmd := range hc.commands {
-		builder.WriteString(fmt.Sprintf("• *%s* - %s\n", cmd.Name(), cmd.Info().Description))
+	for _, cmd := range hc.handler.GetCommands() {
+		if cmd.Name() != "help" {
+			builder.WriteString(fmt.Sprintf("• *%s* - %s\n", cmd.Name(), cmd.Info().Description))
+		}
 	}
-
 	builder.WriteString(helpFooter)
 
 	return builder.String()
 }
 
 func (hc *HelpCommand) generateCommandHelp(cmdName string) (string, bool) {
-	for _, cmd := range hc.commands {
-		if cmd.Name() == cmdName {
-			return hc.buildCommandDetails(cmd), true
-		}
+	cmd, exists := hc.handler.commands[cmdName]
+	if !exists {
+		return "", false
 	}
 
-	return "", false
+	return hc.buildCommandDetails(cmd), true
 }
 
 func (hc *HelpCommand) buildCommandDetails(cmd Command) string {
 	var builder strings.Builder
 	info := cmd.Info()
-
 	builder.WriteString(fmt.Sprintf(commandDetailsHeader, cmd.Name()))
 	builder.WriteString(info.Description + "\n\n")
 	builder.WriteString(fmt.Sprintf(usagePrefix, info.Usage))

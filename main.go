@@ -30,25 +30,30 @@ type Bot struct {
 
 func NewBot(cfg *config.Config) (*Bot, error) {
 	logLevel := parseLogLevel(cfg.LogLevel)
-
 	dbLog := waLog.Stdout("Database", cfg.LogLevel, false)
 	container, err := sqlstore.New("sqlite3", cfg.DBPath, dbLog)
 	if err != nil {
 		return nil, fmt.Errorf("database initialization failed: %w", err)
 	}
-
 	deviceStore, err := container.GetFirstDevice()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device store: %w", err)
 	}
-
 	clientLog := waLog.Stdout("Client", cfg.LogLevel, false)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 
-	commandHandler, err := commands.NewCommandHandler(client, cfg)
+	registry := commands.NewCommandRegistry()
+	helpCmd := commands.NewHelpCommand(client, cfg, nil)
+	latexCmd := commands.NewLaTeXCommand(client, cfg)
+	registry.Register(helpCmd)
+	registry.Register(latexCmd)
+
+	commandHandler, err := commands.NewCommandHandler(client, cfg, registry)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create command handler: %w", err)
 	}
+
+	helpCmd.SetHandler(commandHandler)
 
 	return &Bot{
 		client:          client,
@@ -74,15 +79,12 @@ func parseLogLevel(levelStr string) logger.LogLevel {
 
 func (b *Bot) Start() error {
 	b.logger.Info("Starting bot", nil)
-
 	b.client.AddEventHandler(b.commandHandler.HandleEvent)
-
 	if b.client.Store.ID == nil {
 		b.logger.Info("No device stored, initiating QR login", nil)
 
 		return b.handleQRLogin()
 	}
-
 	b.logger.Info("Restoring existing session", nil)
 
 	return b.connect()
@@ -93,11 +95,9 @@ func (b *Bot) handleQRLogin() error {
 	if err != nil {
 		return fmt.Errorf("failed to get QR channel: %w", err)
 	}
-
 	if err := b.client.Connect(); err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
-
 	for evt := range qrChan {
 		switch evt.Event {
 		case "code":
@@ -125,21 +125,16 @@ func (b *Bot) connect() error {
 func (b *Bot) Shutdown() {
 	b.logger.Info("Initiating graceful shutdown", nil)
 	defer b.logger.Info("Shutdown complete", nil)
-
 	b.commandHandler.Close()
-
 	if b.client.IsConnected() {
 		b.client.Disconnect()
 	}
-
 	close(b.shutdownSignals)
 }
 
 func main() {
 	cfg := config.Load()
-
 	tempLogger := logger.NewLogger(parseLogLevel(cfg.LogLevel))
-
 	if err := cfg.Validate(); err != nil {
 		tempLogger.Error("Invalid configuration", map[string]interface{}{
 			"error": err.Error(),
