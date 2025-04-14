@@ -22,7 +22,6 @@ func NewManager(requests int, period time.Duration) *Manager {
 	notifier := NewNotifier(period)
 	cleaner := NewAutoCleaner(period / cleanupPeriodDivisor)
 
-	// Register components for automatic cleanup
 	cleaner.Register(limiter)
 	cleaner.Register(notifier)
 
@@ -33,7 +32,6 @@ func NewManager(requests int, period time.Duration) *Manager {
 	}
 }
 
-// Stop cleans up resources used by the rate limit manager.
 func (m *Manager) Stop() {
 	m.AutoClean.Stop()
 }
