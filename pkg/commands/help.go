@@ -36,6 +36,20 @@ func NewHelpCommand(client *whatsmeow.Client, cfg *config.Config, handler *Comma
 	}
 }
 
+/*
+SetHandler resolves a circular dependency in the command initialization sequence:
+
+1. HelpCommand is created first with a nil handler so it can be registered in CommandRegistry.
+2. CommandHandler is then created with the registry that already contains HelpCommand.
+3. HelpCommand requires CommandHandler to implement generateGeneralHelp() and generateCommandHelp().
+
+Without this method, we'd have a deadlock: HelpCommand depends on CommandHandler,
+but CommandHandler also needs HelpCommand in the registry.
+*/
+func (hc *HelpCommand) SetHandler(handler *CommandHandler) {
+	hc.handler = handler
+}
+
 func (hc *HelpCommand) Name() string {
 	return "help"
 }

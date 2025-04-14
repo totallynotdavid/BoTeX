@@ -40,6 +40,14 @@ type CommandInfo struct {
 
 type CommandRegistry struct {
 	commands []Command
+	logger   *logger.Logger
+}
+
+func NewCommandRegistry() *CommandRegistry {
+	return &CommandRegistry{
+		commands: make([]Command, 0),
+		logger:   logger.NewLogger(logger.DEBUG),
+	}
 }
 
 func (r *CommandRegistry) Register(cmd Command) {

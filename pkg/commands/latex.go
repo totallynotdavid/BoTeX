@@ -54,7 +54,7 @@ type RenderContext struct {
 	logger        *logger.Logger
 }
 
-func NewLaTeXCommand(client *whatsmeow.Client, cfg *config.Config, handler *CommandHandler) *LaTeXCommand {
+func NewLaTeXCommand(client *whatsmeow.Client, cfg *config.Config) *LaTeXCommand {
 	command := &LaTeXCommand{
 		config:        cfg,
 		messageSender: message.NewMessageSender(client),

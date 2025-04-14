@@ -28,7 +28,7 @@ type Bot struct {
 	shutdownSignals chan os.Signal
 }
 
-func NewBot(cfg *config.Config, registry *commands.CommandRegistry) (*Bot, error) {
+func NewBot(cfg *config.Config) (*Bot, error) {
 	logLevel := parseLogLevel(cfg.LogLevel)
 	dbLog := waLog.Stdout("Database", cfg.LogLevel, false)
 	container, err := sqlstore.New("sqlite3", cfg.DBPath, dbLog)
@@ -41,10 +41,19 @@ func NewBot(cfg *config.Config, registry *commands.CommandRegistry) (*Bot, error
 	}
 	clientLog := waLog.Stdout("Client", cfg.LogLevel, false)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
+
+	registry := commands.NewCommandRegistry()
+	helpCmd := commands.NewHelpCommand(client, cfg, nil)
+	latexCmd := commands.NewLaTeXCommand(client, cfg)
+	registry.Register(helpCmd)
+	registry.Register(latexCmd)
+
 	commandHandler, err := commands.NewCommandHandler(client, cfg, registry)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create command handler: %w", err)
 	}
+
+	helpCmd.SetHandler(commandHandler)
 
 	return &Bot{
 		client:          client,
@@ -133,19 +142,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	registry := &commands.CommandRegistry{}
-	bot, err := NewBot(cfg, registry)
+	bot, err := NewBot(cfg)
 	if err != nil {
 		tempLogger.Error("Failed to initialize bot", map[string]interface{}{
 			"error": err.Error(),
 		})
 		os.Exit(1)
 	}
-
-	helpCmd := commands.NewHelpCommand(bot.client, cfg, bot.commandHandler)
-	latexCmd := commands.NewLaTeXCommand(bot.client, cfg, bot.commandHandler)
-	registry.Register(helpCmd)
-	registry.Register(latexCmd)
 
 	if err := bot.Start(); err != nil {
 		bot.logger.Error("Failed to start bot", map[string]interface{}{
