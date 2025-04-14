@@ -134,11 +134,6 @@ func main() {
 	}
 
 	registry := &commands.CommandRegistry{}
-	registry.Register(commands.NewHelpCommand)
-	registry.Register(func(client *whatsmeow.Client, cfg *config.Config, handler *commands.CommandHandler) commands.Command {
-		return commands.NewLaTeXCommand(client, cfg, handler)
-	})
-
 	bot, err := NewBot(cfg, registry)
 	if err != nil {
 		tempLogger.Error("Failed to initialize bot", map[string]interface{}{
@@ -146,6 +141,11 @@ func main() {
 		})
 		os.Exit(1)
 	}
+
+	helpCmd := commands.NewHelpCommand(bot.client, cfg, bot.commandHandler)
+	latexCmd := commands.NewLaTeXCommand(bot.client, cfg, bot.commandHandler)
+	registry.Register(helpCmd)
+	registry.Register(latexCmd)
 
 	if err := bot.Start(); err != nil {
 		bot.logger.Error("Failed to start bot", map[string]interface{}{

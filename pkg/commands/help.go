@@ -27,7 +27,7 @@ type HelpCommand struct {
 	logger        *logger.Logger
 }
 
-func NewHelpCommand(client *whatsmeow.Client, cfg *config.Config, handler *CommandHandler) Command {
+func NewHelpCommand(client *whatsmeow.Client, cfg *config.Config, handler *CommandHandler) *HelpCommand {
 	return &HelpCommand{
 		config:        cfg,
 		messageSender: message.NewMessageSender(client),

@@ -26,14 +26,6 @@ var (
 	ErrInvalidCommandInput = errors.New("invalid command input")
 )
 
-type CommandRegistry struct {
-	factories []func(*whatsmeow.Client, *config.Config, *CommandHandler) Command
-}
-
-func (r *CommandRegistry) Register(factory func(*whatsmeow.Client, *config.Config, *CommandHandler) Command) {
-	r.factories = append(r.factories, factory)
-}
-
 type Command interface {
 	Handle(ctx context.Context, msg *message.Message) error
 	Name() string
@@ -44,6 +36,14 @@ type CommandInfo struct {
 	Description string
 	Usage       string
 	Examples    []string
+}
+
+type CommandRegistry struct {
+	commands []Command
+}
+
+func (r *CommandRegistry) Register(cmd Command) {
+	r.commands = append(r.commands, cmd)
 }
 
 type CommandHandler struct {
@@ -88,8 +88,7 @@ func NewCommandHandler(client *whatsmeow.Client, config *config.Config, registry
 		semaphore:     make(chan struct{}, config.MaxConcurrent),
 	}
 
-	for _, factory := range registry.factories {
-		cmd := factory(client, config, handler)
+	for _, cmd := range registry.commands {
 		handler.commands[cmd.Name()] = cmd
 	}
 
