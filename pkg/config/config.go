@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"botex/pkg/logger"
 )
 
 const (
@@ -34,7 +36,7 @@ var (
 	ErrRateLimitPeriodMustBePositive        = errors.New("RateLimit.Period must be positive")
 	ErrRateLimitNotificationCooldownInvalid = errors.New("RateLimit.NotificationCooldown must be positive")
 	ErrRateLimitCleanupIntervalInvalid      = errors.New("RateLimit.CleanupInterval must be positive")
-	ErrTimingLogThresholdInvalid            = errors.New("Timing.LogThreshold must be positive")
+	ErrTimingLogThresholdInvalid            = errors.New("Timing.LogThreshold must be non-negative")
 )
 
 type Config struct {
@@ -78,11 +80,18 @@ func Load() *Config {
 	cfg.Timing.Level = getEnv("BOTEX_TIMING_LEVEL", DefaultTimingLevel)
 	thresholdStr := getEnv("BOTEX_TIMING_THRESHOLD", "100")
 	threshold, err := strconv.Atoi(thresholdStr)
-	if err == nil && threshold > 0 {
+	if err == nil {
 		cfg.Timing.LogThreshold = time.Duration(threshold) * time.Millisecond
 	} else {
 		cfg.Timing.LogThreshold = DefaultTimingLogThreshold
 	}
+
+	// Log the timing configuration
+	initLogger := logger.NewLogger(logger.INFO)
+	initLogger.Info("Timing configuration loaded", map[string]interface{}{
+		"level":     cfg.Timing.Level,
+		"threshold": cfg.Timing.LogThreshold,
+	})
 
 	return cfg
 }
@@ -106,7 +115,7 @@ func (c *Config) Validate() error {
 	if c.RateLimit.CleanupInterval <= 0 {
 		return ErrRateLimitCleanupIntervalInvalid
 	}
-	if c.Timing.LogThreshold <= 0 {
+	if c.Timing.LogThreshold < 0 {
 		return ErrTimingLogThresholdInvalid
 	}
 
@@ -114,7 +123,15 @@ func (c *Config) Validate() error {
 }
 
 func getEnv(key, defaultValue string) string {
-	if value, exists := os.LookupEnv(key); exists {
+	value, exists := os.LookupEnv(key)
+	initLogger := logger.NewLogger(logger.INFO)
+	initLogger.Debug("Loading env var", map[string]interface{}{
+		"key":     key,
+		"exists":  exists,
+		"value":   value,
+		"default": defaultValue,
+	})
+	if exists {
 		return value
 	}
 

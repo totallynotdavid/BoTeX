@@ -40,8 +40,9 @@ func NewTracker(config Config, logger *logger.Logger) *Tracker {
 
 // Track executes the given function and records its execution time if tracking is enabled.
 func (t *Tracker) Track(ctx context.Context, operation string, level Level, operationFunc func(context.Context) error) error {
-	if t.config.Level < level {
-		// Skip tracking if the requested level is higher than configured
+	if t.config.Level == Disabled || (t.config.Level < level && t.config.Level != Debug) {
+		// Skip tracking if tracking is disabled or if the requested level is higher than configured
+		// (unless we're in debug mode, in which case we track everything)
 		return operationFunc(ctx)
 	}
 

@@ -12,6 +12,7 @@ import (
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/timing"
+	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdp/qrterminal/v3"
 	"go.mau.fi/whatsmeow"
@@ -45,7 +46,8 @@ func NewBot(cfg *config.Config) (*Bot, error) {
 
 	registry := commands.NewCommandRegistry()
 	loggerInstance := logger.NewLogger(logLevel)
-	timeTracker := timing.NewTrackerFromConfig(cfg, loggerInstance)
+	timeLogger := logger.NewLogger(logger.DEBUG)
+	timeTracker := timing.NewTrackerFromConfig(cfg, timeLogger)
 	helpCmd := commands.NewHelpCommand(client, cfg, nil)
 	latexCmd := commands.NewLaTeXCommand(client, cfg, timeTracker)
 	registry.Register(helpCmd)
@@ -136,10 +138,17 @@ func (b *Bot) Shutdown() {
 }
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		basicLogger := logger.NewLogger(logger.INFO)
+		basicLogger.Warn("Error loading .env file", map[string]interface{}{
+			"error": err.Error(),
+		})
+	}
+
 	cfg := config.Load()
-	tempLogger := logger.NewLogger(parseLogLevel(cfg.LogLevel))
+	initLogger := logger.NewLogger(parseLogLevel(cfg.LogLevel))
 	if err := cfg.Validate(); err != nil {
-		tempLogger.Error("Invalid configuration", map[string]interface{}{
+		initLogger.Error("Invalid configuration", map[string]interface{}{
 			"error": err.Error(),
 		})
 		os.Exit(1)
@@ -147,7 +156,7 @@ func main() {
 
 	bot, err := NewBot(cfg)
 	if err != nil {
-		tempLogger.Error("Failed to initialize bot", map[string]interface{}{
+		initLogger.Error("Failed to initialize bot", map[string]interface{}{
 			"error": err.Error(),
 		})
 		os.Exit(1)

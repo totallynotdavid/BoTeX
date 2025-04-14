@@ -8,24 +8,40 @@ import (
 )
 
 func NewTrackerFromConfig(cfg *config.Config, logger *logger.Logger) *Tracker {
+	logger.Debug("Creating timing tracker", map[string]interface{}{
+		"level":     cfg.Timing.Level,
+		"threshold": cfg.Timing.LogThreshold,
+	})
+
 	return NewTracker(
 		Config{
-			Level:        ParseLevel(cfg.Timing.Level),
+			Level:        ParseLevel(cfg.Timing.Level, logger),
 			LogThreshold: cfg.Timing.LogThreshold,
 		},
 		logger,
 	)
 }
 
-func ParseLevel(levelStr string) Level {
+func ParseLevel(levelStr string, logger *logger.Logger) Level {
+	logger.Debug("Parsing timing level", map[string]interface{}{
+		"input": levelStr,
+	})
+
+	level := Disabled
 	switch strings.ToLower(levelStr) {
+	case "disabled":
+		level = Disabled
 	case "basic":
-		return Basic
+		level = Basic
 	case "detailed":
-		return Detailed
+		level = Detailed
 	case "debug":
-		return Debug
-	default:
-		return Disabled
+		level = Debug
 	}
+
+	logger.Debug("Parsed timing level", map[string]interface{}{
+		"level": level,
+	})
+
+	return level
 }
