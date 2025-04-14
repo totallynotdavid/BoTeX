@@ -56,11 +56,11 @@ type RenderContext struct {
 	logger        *logger.Logger
 }
 
-func NewLaTeXCommand(client *whatsmeow.Client, cfg *config.Config, timeTracker *timing.Tracker) *LaTeXCommand {
+func NewLaTeXCommand(client *whatsmeow.Client, cfg *config.Config, timeTracker *timing.Tracker, loggerFactory *logger.LoggerFactory) *LaTeXCommand {
 	command := &LaTeXCommand{
 		config:        cfg,
 		messageSender: message.NewMessageSender(client),
-		logger:        logger.NewLogger(logger.INFO),
+		logger:        loggerFactory.GetLogger("latex-command"),
 		timeTracker:   timeTracker,
 		renderTimeout: defaultRenderTimeoutSec * time.Second,
 	}

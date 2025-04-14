@@ -44,10 +44,10 @@ type CommandRegistry struct {
 	logger   *logger.Logger
 }
 
-func NewCommandRegistry() *CommandRegistry {
+func NewCommandRegistry(loggerFactory *logger.LoggerFactory) *CommandRegistry {
 	return &CommandRegistry{
 		commands: make([]Command, 0),
-		logger:   logger.NewLogger(logger.DEBUG),
+		logger:   loggerFactory.GetLogger("command-registry"),
 	}
 }
 
@@ -66,8 +66,8 @@ type CommandHandler struct {
 	timeTracker   *timing.Tracker
 }
 
-func NewCommandHandler(client *whatsmeow.Client, config *config.Config, registry *CommandRegistry) (*CommandHandler, error) {
-	loggerInstance := logger.NewLogger(logger.INFO)
+func NewCommandHandler(client *whatsmeow.Client, config *config.Config, registry *CommandRegistry, loggerFactory *logger.LoggerFactory) (*CommandHandler, error) {
+	cmdLogger := loggerFactory.GetLogger("command-handler")
 
 	limiter := ratelimit.NewLimiter(
 		config.RateLimit.Requests,
@@ -83,21 +83,21 @@ func NewCommandHandler(client *whatsmeow.Client, config *config.Config, registry
 		limiter,
 		notifier,
 		cleaner,
-		loggerInstance,
+		cmdLogger,
 	)
 
 	if err := rateService.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start rate limiter: %w", err)
 	}
 
-	timeTracker := timing.NewTrackerFromConfig(config, loggerInstance)
+	timeTracker := timing.NewTrackerFromConfig(config, loggerFactory.GetLogger("timing"))
 
 	handler := &CommandHandler{
 		client:        client,
 		commands:      make(map[string]Command),
 		config:        config,
 		messageSender: message.NewMessageSender(client),
-		logger:        loggerInstance,
+		logger:        cmdLogger,
 		rateService:   rateService,
 		semaphore:     make(chan struct{}, config.MaxConcurrent),
 		timeTracker:   timeTracker,

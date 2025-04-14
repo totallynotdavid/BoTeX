@@ -21,18 +21,19 @@ const (
 )
 
 type HelpCommand struct {
+	client        *whatsmeow.Client
 	config        *config.Config
 	messageSender *message.MessageSender
 	handler       *CommandHandler
 	logger        *logger.Logger
 }
 
-func NewHelpCommand(client *whatsmeow.Client, cfg *config.Config, handler *CommandHandler) *HelpCommand {
+func NewHelpCommand(client *whatsmeow.Client, cfg *config.Config, loggerFactory *logger.LoggerFactory) *HelpCommand {
 	return &HelpCommand{
+		client:        client,
 		config:        cfg,
 		messageSender: message.NewMessageSender(client),
-		handler:       handler,
-		logger:        logger.NewLogger(logger.INFO),
+		logger:        loggerFactory.GetLogger("help-command"),
 	}
 }
 

@@ -60,16 +60,16 @@ type Config struct {
 	CWebPPath    string
 }
 
-func Load() *Config {
+func Load(logger *logger.Logger) *Config {
 	cfg := &Config{
-		DBPath:        getEnv("BOTEX_DB_PATH", "file:botex.db?_foreign_keys=on&_journal_mode=WAL"),
-		LogLevel:      getEnv("BOTEX_LOG_LEVEL", "INFO"),
-		TempDir:       getEnv("BOTEX_TEMP_DIR", os.TempDir()),
+		DBPath:        getEnv(logger, "BOTEX_DB_PATH", "file:botex.db?_foreign_keys=on&_journal_mode=WAL"),
+		LogLevel:      getEnv(logger, "BOTEX_LOG_LEVEL", "INFO"),
+		TempDir:       getEnv(logger, "BOTEX_TEMP_DIR", os.TempDir()),
 		MaxImageSize:  DefaultMaxImageSize,
 		MaxConcurrent: DefaultMaxConcurrent,
-		PDFLatexPath:  getEnv("BOTEX_PDFLATEX_PATH", ""),
-		ConvertPath:   getEnv("BOTEX_CONVERT_PATH", ""),
-		CWebPPath:     getEnv("BOTEX_CWEBP_PATH", ""),
+		PDFLatexPath:  getEnv(logger, "BOTEX_PDFLATEX_PATH", ""),
+		ConvertPath:   getEnv(logger, "BOTEX_CONVERT_PATH", ""),
+		CWebPPath:     getEnv(logger, "BOTEX_CWEBP_PATH", ""),
 	}
 
 	cfg.RateLimit.Requests = DefaultRateLimitRequests
@@ -77,8 +77,8 @@ func Load() *Config {
 	cfg.RateLimit.NotificationCooldown = DefaultRateLimitNotificationCooldown
 	cfg.RateLimit.CleanupInterval = DefaultRateLimitCleanupInterval
 
-	cfg.Timing.Level = getEnv("BOTEX_TIMING_LEVEL", DefaultTimingLevel)
-	thresholdStr := getEnv("BOTEX_TIMING_THRESHOLD", "100")
+	cfg.Timing.Level = getEnv(logger, "BOTEX_TIMING_LEVEL", DefaultTimingLevel)
+	thresholdStr := getEnv(logger, "BOTEX_TIMING_THRESHOLD", "100")
 	threshold, err := strconv.Atoi(thresholdStr)
 	if err == nil {
 		cfg.Timing.LogThreshold = time.Duration(threshold) * time.Millisecond
@@ -87,8 +87,7 @@ func Load() *Config {
 	}
 
 	// Log the timing configuration
-	initLogger := logger.NewLogger(logger.INFO)
-	initLogger.Info("Timing configuration loaded", map[string]interface{}{
+	logger.Info("Timing configuration loaded", map[string]interface{}{
 		"level":     cfg.Timing.Level,
 		"threshold": cfg.Timing.LogThreshold,
 	})
@@ -122,15 +121,15 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-func getEnv(key, defaultValue string) string {
+func getEnv(logger *logger.Logger, key, defaultValue string) string {
 	value, exists := os.LookupEnv(key)
-	initLogger := logger.NewLogger(logger.INFO)
-	initLogger.Debug("Loading env var", map[string]interface{}{
+	logger.Debug("Loading env var", map[string]interface{}{
 		"key":     key,
 		"exists":  exists,
 		"value":   value,
 		"default": defaultValue,
 	})
+
 	if exists {
 		return value
 	}
