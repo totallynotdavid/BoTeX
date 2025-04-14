@@ -25,8 +25,11 @@ func (ms *MessageSender) SendText(ctx context.Context, recipient types.JID, text
 	_, err := ms.client.SendMessage(ctx, recipient, &waE2E.Message{
 		Conversation: proto.String(text),
 	})
+	if err != nil {
+		return fmt.Errorf("failed to send text message: %w", err)
+	}
 
-	return fmt.Errorf("failed to send text message: %w", err)
+	return nil
 }
 
 func (ms *MessageSender) SendImage(ctx context.Context, recipient types.JID, imageData []byte, caption string) error {
@@ -52,8 +55,11 @@ func (ms *MessageSender) SendImage(ctx context.Context, recipient types.JID, ima
 	_, err = ms.client.SendMessage(ctx, recipient, &waE2E.Message{
 		ImageMessage: imageMsg,
 	})
+	if err != nil {
+		return fmt.Errorf("failed to send image message: %w", err)
+	}
 
-	return fmt.Errorf("failed to send image message: %w", err)
+	return nil
 }
 
 func (ms *MessageSender) SendSticker(ctx context.Context, recipient types.JID, stickerData []byte) error {
@@ -74,8 +80,11 @@ func (ms *MessageSender) SendSticker(ctx context.Context, recipient types.JID, s
 	_, err = ms.client.SendMessage(ctx, recipient, &waE2E.Message{
 		StickerMessage: stickerMsg,
 	})
+	if err != nil {
+		return fmt.Errorf("failed to send sticker message: %w", err)
+	}
 
-	return fmt.Errorf("failed to send sticker message: %w", err)
+	return nil
 }
 
 func (ms *MessageSender) SendDocument(ctx context.Context, recipient types.JID, documentData []byte, filename, mimetype string) error {
@@ -98,8 +107,11 @@ func (ms *MessageSender) SendDocument(ctx context.Context, recipient types.JID, 
 	_, err = ms.client.SendMessage(ctx, recipient, &waE2E.Message{
 		DocumentMessage: documentMsg,
 	})
+	if err != nil {
+		return fmt.Errorf("failed to send document message: %w", err)
+	}
 
-	return fmt.Errorf("failed to send document message: %w", err)
+	return nil
 }
 
 func (ms *MessageSender) SendVideo(ctx context.Context, recipient types.JID, videoData []byte, caption string) error {
@@ -125,8 +137,11 @@ func (ms *MessageSender) SendVideo(ctx context.Context, recipient types.JID, vid
 	_, err = ms.client.SendMessage(ctx, recipient, &waE2E.Message{
 		VideoMessage: videoMsg,
 	})
+	if err != nil {
+		return fmt.Errorf("failed to send video message: %w", err)
+	}
 
-	return fmt.Errorf("failed to send video message: %w", err)
+	return nil
 }
 
 func (ms *MessageSender) SendAudio(ctx context.Context, recipient types.JID, audioData []byte) error {
@@ -148,8 +163,11 @@ func (ms *MessageSender) SendAudio(ctx context.Context, recipient types.JID, aud
 	_, err = ms.client.SendMessage(ctx, recipient, &waE2E.Message{
 		AudioMessage: audioMsg,
 	})
+	if err != nil {
+		return fmt.Errorf("failed to send audio message: %w", err)
+	}
 
-	return fmt.Errorf("failed to send audio message: %w", err)
+	return nil
 }
 
 func (ms *MessageSender) SendReaction(ctx context.Context, recipient types.JID, messageID, emoji string) error {
@@ -164,6 +182,9 @@ func (ms *MessageSender) SendReaction(ctx context.Context, recipient types.JID, 
 			Text: proto.String(emoji),
 		},
 	})
+	if err != nil {
+		return fmt.Errorf("failed to send reaction message: %w", err)
+	}
 
-	return fmt.Errorf("failed to send reaction message: %w", err)
+	return nil
 }
