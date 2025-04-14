@@ -63,21 +63,27 @@ func (hc *HelpCommand) Info() CommandInfo {
 }
 
 func (hc *HelpCommand) Handle(ctx context.Context, msg *message.Message) error {
-	args := strings.TrimSpace(msg.Text)
-	var helpText string
+	if err := hc.handler.timeTracker.TrackCommand(ctx, "help", func(ctx context.Context) error {
+		args := strings.TrimSpace(msg.Text)
+		var helpText string
 
-	if args == "" {
-		helpText = hc.generateGeneralHelp()
-	} else {
-		cmdName := strings.Split(args, " ")[0]
-		var found bool
-		helpText, found = hc.generateCommandHelp(cmdName)
-		if !found {
-			helpText = fmt.Sprintf(commandNotFoundMsg, cmdName)
+		if args == "" {
+			helpText = hc.generateGeneralHelp()
+		} else {
+			cmdName := strings.Split(args, " ")[0]
+			var found bool
+			helpText, found = hc.generateCommandHelp(cmdName)
+			if !found {
+				helpText = fmt.Sprintf(commandNotFoundMsg, cmdName)
+			}
 		}
+
+		return hc.sendHelpResponse(ctx, msg, helpText)
+	}); err != nil {
+		return fmt.Errorf("failed to track help command execution: %w", err)
 	}
 
-	return hc.sendHelpResponse(ctx, msg, helpText)
+	return nil
 }
 
 func (hc *HelpCommand) generateGeneralHelp() string {

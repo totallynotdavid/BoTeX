@@ -11,6 +11,7 @@ import (
 	"botex/pkg/commands"
 	"botex/pkg/config"
 	"botex/pkg/logger"
+	"botex/pkg/timing"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdp/qrterminal/v3"
 	"go.mau.fi/whatsmeow"
@@ -43,8 +44,10 @@ func NewBot(cfg *config.Config) (*Bot, error) {
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 
 	registry := commands.NewCommandRegistry()
+	loggerInstance := logger.NewLogger(logLevel)
+	timeTracker := timing.NewTrackerFromConfig(cfg, loggerInstance)
 	helpCmd := commands.NewHelpCommand(client, cfg, nil)
-	latexCmd := commands.NewLaTeXCommand(client, cfg)
+	latexCmd := commands.NewLaTeXCommand(client, cfg, timeTracker)
 	registry.Register(helpCmd)
 	registry.Register(latexCmd)
 
@@ -59,7 +62,7 @@ func NewBot(cfg *config.Config) (*Bot, error) {
 		client:          client,
 		commandHandler:  commandHandler,
 		config:          cfg,
-		logger:          logger.NewLogger(logLevel),
+		logger:          loggerInstance,
 		shutdownSignals: make(chan os.Signal, 1),
 	}, nil
 }

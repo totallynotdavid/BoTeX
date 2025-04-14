@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -20,9 +21,12 @@ const (
 	DefaultRateLimitPeriod               = 1 * time.Minute
 	DefaultRateLimitNotificationCooldown = 5 * time.Minute
 	DefaultRateLimitCleanupInterval      = 1 * time.Hour
+
+	// Default timing configuration.
+	DefaultTimingLevel        = "disabled"
+	DefaultTimingLogThreshold = 100 * time.Millisecond
 )
 
-// Error definitions.
 var (
 	ErrMaxImageSizeMustBePositive           = errors.New("MaxImageSize must be positive")
 	ErrMaxConcurrentMustBePositive          = errors.New("MaxConcurrent must be positive")
@@ -30,6 +34,7 @@ var (
 	ErrRateLimitPeriodMustBePositive        = errors.New("RateLimit.Period must be positive")
 	ErrRateLimitNotificationCooldownInvalid = errors.New("RateLimit.NotificationCooldown must be positive")
 	ErrRateLimitCleanupIntervalInvalid      = errors.New("RateLimit.CleanupInterval must be positive")
+	ErrTimingLogThresholdInvalid            = errors.New("Timing.LogThreshold must be positive")
 )
 
 type Config struct {
@@ -44,7 +49,10 @@ type Config struct {
 		NotificationCooldown time.Duration
 		CleanupInterval      time.Duration
 	}
-
+	Timing struct {
+		Level        string
+		LogThreshold time.Duration
+	}
 	PDFLatexPath string
 	ConvertPath  string
 	CWebPPath    string
@@ -57,17 +65,24 @@ func Load() *Config {
 		TempDir:       getEnv("BOTEX_TEMP_DIR", os.TempDir()),
 		MaxImageSize:  DefaultMaxImageSize,
 		MaxConcurrent: DefaultMaxConcurrent,
-
-		PDFLatexPath: getEnv("BOTEX_PDFLATEX_PATH", ""),
-		ConvertPath:  getEnv("BOTEX_CONVERT_PATH", ""),
-		CWebPPath:    getEnv("BOTEX_CWEBP_PATH", ""),
+		PDFLatexPath:  getEnv("BOTEX_PDFLATEX_PATH", ""),
+		ConvertPath:   getEnv("BOTEX_CONVERT_PATH", ""),
+		CWebPPath:     getEnv("BOTEX_CWEBP_PATH", ""),
 	}
 
-	// Rate limiting configuration
 	cfg.RateLimit.Requests = DefaultRateLimitRequests
 	cfg.RateLimit.Period = DefaultRateLimitPeriod
 	cfg.RateLimit.NotificationCooldown = DefaultRateLimitNotificationCooldown
 	cfg.RateLimit.CleanupInterval = DefaultRateLimitCleanupInterval
+
+	cfg.Timing.Level = getEnv("BOTEX_TIMING_LEVEL", DefaultTimingLevel)
+	thresholdStr := getEnv("BOTEX_TIMING_THRESHOLD", "100")
+	threshold, err := strconv.Atoi(thresholdStr)
+	if err == nil && threshold > 0 {
+		cfg.Timing.LogThreshold = time.Duration(threshold) * time.Millisecond
+	} else {
+		cfg.Timing.LogThreshold = DefaultTimingLogThreshold
+	}
 
 	return cfg
 }
@@ -90,6 +105,9 @@ func (c *Config) Validate() error {
 	}
 	if c.RateLimit.CleanupInterval <= 0 {
 		return ErrRateLimitCleanupIntervalInvalid
+	}
+	if c.Timing.LogThreshold <= 0 {
+		return ErrTimingLogThresholdInvalid
 	}
 
 	return nil

@@ -13,6 +13,7 @@ import (
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/message"
+	"botex/pkg/timing"
 	"go.mau.fi/whatsmeow"
 )
 
@@ -40,6 +41,7 @@ type LaTeXCommand struct {
 	config        *config.Config
 	messageSender *message.MessageSender
 	logger        *logger.Logger
+	timeTracker   *timing.Tracker
 	renderTimeout time.Duration
 	toolPaths     struct {
 		pdflatex string
@@ -54,11 +56,12 @@ type RenderContext struct {
 	logger        *logger.Logger
 }
 
-func NewLaTeXCommand(client *whatsmeow.Client, cfg *config.Config) *LaTeXCommand {
+func NewLaTeXCommand(client *whatsmeow.Client, cfg *config.Config, timeTracker *timing.Tracker) *LaTeXCommand {
 	command := &LaTeXCommand{
 		config:        cfg,
 		messageSender: message.NewMessageSender(client),
 		logger:        logger.NewLogger(logger.INFO),
+		timeTracker:   timeTracker,
 		renderTimeout: defaultRenderTimeoutSec * time.Second,
 	}
 	command.initializeToolPaths()
@@ -387,28 +390,34 @@ func (lc *LaTeXCommand) Info() CommandInfo {
 }
 
 func (lc *LaTeXCommand) Handle(ctx context.Context, message *message.Message) error {
-	latexCode := strings.TrimSpace(strings.TrimPrefix(message.Text, "!latex"))
-	if latexCode == "" {
-		return ErrEmptyLatex
-	}
-	if len(latexCode) > maxLatexCodeLength {
-		return ErrLatexTooLong
-	}
-	if validationErr := lc.validateLatexContent(latexCode); validationErr != nil {
-		return validationErr
-	}
-	renderCtx, cancel := context.WithTimeout(ctx, lc.renderTimeout)
-	defer cancel()
-	webpImage, renderErr := lc.renderLatex(renderCtx, latexCode)
-	if renderErr != nil {
-		if errors.Is(renderCtx.Err(), context.DeadlineExceeded) {
-			return fmt.Errorf("%w after %s", ErrRenderTimeout, lc.renderTimeout)
+	if err := lc.timeTracker.TrackCommand(ctx, "latex", func(ctx context.Context) error {
+		latexCode := strings.TrimSpace(strings.TrimPrefix(message.Text, "!latex"))
+		if latexCode == "" {
+			return ErrEmptyLatex
+		}
+		if len(latexCode) > maxLatexCodeLength {
+			return ErrLatexTooLong
+		}
+		if validationErr := lc.validateLatexContent(latexCode); validationErr != nil {
+			return validationErr
+		}
+		renderCtx, cancel := context.WithTimeout(ctx, lc.renderTimeout)
+		defer cancel()
+		webpImage, renderErr := lc.renderLatex(renderCtx, latexCode)
+		if renderErr != nil {
+			if errors.Is(renderCtx.Err(), context.DeadlineExceeded) {
+				return fmt.Errorf("%w after %s", ErrRenderTimeout, lc.renderTimeout)
+			}
+
+			return fmt.Errorf("rendering failed: %w", renderErr)
+		}
+		if sendErr := lc.messageSender.SendImage(ctx, message.Recipient, webpImage, "LaTeX Render"); sendErr != nil {
+			return fmt.Errorf("failed to send image: %w", sendErr)
 		}
 
-		return fmt.Errorf("rendering failed: %w", renderErr)
-	}
-	if sendErr := lc.messageSender.SendImage(ctx, message.Recipient, webpImage, "LaTeX Render"); sendErr != nil {
-		return fmt.Errorf("failed to send image: %w", sendErr)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to track LaTeX command execution: %w", err)
 	}
 
 	return nil
