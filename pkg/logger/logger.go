@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -15,6 +17,11 @@ const (
 	INFO
 	WARN
 	ERROR
+)
+
+const (
+	DirPerm  = 0o750 // equivalent to chmod 750
+	FilePerm = 0o600 // equivalent to chmod 600
 )
 
 func ParseLogLevel(levelStr string) LogLevel {
@@ -48,6 +55,7 @@ func (l LogLevel) String() string {
 type Logger struct {
 	level LogLevel
 	name  string
+	file  *os.File
 }
 
 type LogEntry struct {
@@ -62,13 +70,29 @@ type LoggerFactory struct {
 	defaultLevel LogLevel
 	loggers      map[string]*Logger
 	mu           sync.RWMutex
+	logDir       string
 }
 
 func NewLoggerFactory(defaultLevel LogLevel) *LoggerFactory {
+	logDir := "logs"
+	if err := os.MkdirAll(logDir, DirPerm); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create logs directory: %v\n", err)
+		// Fallback to current directory if we can't create logs directory
+		logDir = "."
+	}
+
 	return &LoggerFactory{
 		defaultLevel: defaultLevel,
 		loggers:      make(map[string]*Logger),
+		logDir:       logDir,
 	}
+}
+
+func generateLogFilename() string {
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	filename := fmt.Sprintf("botex_%s.log", timestamp)
+
+	return filepath.Base(filename)
 }
 
 // GetLogger retrieves or creates a named logger from the factory.
@@ -89,9 +113,23 @@ func (f *LoggerFactory) GetLogger(name string) *Logger {
 		return logger
 	}
 
+	logFile := filepath.Join(f.logDir, generateLogFilename())
+	logFile = filepath.Clean(logFile)
+	if !strings.HasPrefix(logFile, f.logDir) {
+		logFile = filepath.Join(f.logDir, "default.log")
+	}
+
+	file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, FilePerm)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create log file: %v\n", err)
+		// Fallback to stdout if we can't create the file
+		file = os.Stdout
+	}
+
 	logger = &Logger{
 		level: f.defaultLevel,
 		name:  name,
+		file:  file,
 	}
 	f.loggers[name] = logger
 
@@ -145,7 +183,7 @@ func (l *Logger) log(level, msg string, data map[string]interface{}) {
 		return
 	}
 
-	if _, err := fmt.Fprintf(os.Stdout, "%s\n", string(jsonData)); err != nil {
+	if _, err := fmt.Fprintf(l.file, "%s\n", string(jsonData)); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing log entry: %v\n", err)
 	}
 }
