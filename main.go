@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"botex/pkg/auth"
 	"botex/pkg/commands"
 	"botex/pkg/config"
 	"botex/pkg/logger"
@@ -52,11 +54,23 @@ func NewBot(cfg *config.Config, loggerFactory *logger.LoggerFactory) (*Bot, erro
 	timeLogger := loggerFactory.GetLogger("timing")
 	timeTracker := timing.NewTrackerFromConfig(cfg, timeLogger)
 
+	// Initialize auth service
+	db, err := sql.Open("sqlite3", cfg.DBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+	authService, err := auth.NewService(db, loggerFactory)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create auth service: %w", err)
+	}
+
 	helpCmd := commands.NewHelpCommand(client, cfg, loggerFactory)
 	latexCmd := commands.NewLaTeXCommand(client, cfg, timeTracker, loggerFactory)
+	rankCmd := commands.NewRankCommand(client, cfg, authService, loggerFactory)
 
 	registry.Register(helpCmd)
 	registry.Register(latexCmd)
+	registry.Register(rankCmd)
 
 	commandHandler, err := commands.NewCommandHandler(client, cfg, registry, loggerFactory)
 	if err != nil {
