@@ -16,12 +16,6 @@ import (
 	"go.mau.fi/whatsmeow"
 )
 
-func init() {
-	RegisterCommand(func(client *whatsmeow.Client, cfg *config.Config, handler *CommandHandler) Command {
-		return NewLaTeXCommand(client, cfg)
-	})
-}
-
 const (
 	defaultRenderTimeoutSec = 45
 	maxLatexCodeLength      = 1000
@@ -60,9 +54,9 @@ type RenderContext struct {
 	logger        *logger.Logger
 }
 
-func NewLaTeXCommand(client *whatsmeow.Client, config *config.Config) *LaTeXCommand {
+func NewLaTeXCommand(client *whatsmeow.Client, cfg *config.Config, _ *CommandHandler) Command {
 	command := &LaTeXCommand{
-		config:        config,
+		config:        cfg,
 		messageSender: message.NewMessageSender(client),
 		logger:        logger.NewLogger(logger.INFO),
 		renderTimeout: defaultRenderTimeoutSec * time.Second,

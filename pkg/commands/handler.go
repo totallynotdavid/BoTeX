@@ -24,8 +24,15 @@ var (
 	ErrTooManyConcurrent   = errors.New("too many concurrent commands")
 	ErrCommandNotFound     = errors.New("command not found")
 	ErrInvalidCommandInput = errors.New("invalid command input")
-	commandFactories       []func(*whatsmeow.Client, *config.Config, *CommandHandler) Command
 )
+
+type CommandRegistry struct {
+	factories []func(*whatsmeow.Client, *config.Config, *CommandHandler) Command
+}
+
+func (r *CommandRegistry) Register(factory func(*whatsmeow.Client, *config.Config, *CommandHandler) Command) {
+	r.factories = append(r.factories, factory)
+}
 
 type Command interface {
 	Handle(ctx context.Context, msg *message.Message) error
@@ -49,11 +56,7 @@ type CommandHandler struct {
 	semaphore     chan struct{}
 }
 
-func RegisterCommand(factory func(*whatsmeow.Client, *config.Config, *CommandHandler) Command) {
-	commandFactories = append(commandFactories, factory)
-}
-
-func NewCommandHandler(client *whatsmeow.Client, config *config.Config) (*CommandHandler, error) {
+func NewCommandHandler(client *whatsmeow.Client, config *config.Config, registry *CommandRegistry) (*CommandHandler, error) {
 	limiter := ratelimit.NewLimiter(
 		config.RateLimit.Requests,
 		config.RateLimit.Period,
@@ -85,7 +88,7 @@ func NewCommandHandler(client *whatsmeow.Client, config *config.Config) (*Comman
 		semaphore:     make(chan struct{}, config.MaxConcurrent),
 	}
 
-	for _, factory := range commandFactories {
+	for _, factory := range registry.factories {
 		cmd := factory(client, config, handler)
 		handler.commands[cmd.Name()] = cmd
 	}
@@ -104,10 +107,6 @@ func (h *CommandHandler) GetCommands() []Command {
 
 func (h *CommandHandler) Close() {
 	h.rateService.Stop()
-}
-
-func (h *CommandHandler) RegisterCommand(cmd Command) {
-	h.commands[cmd.Name()] = cmd
 }
 
 func (h *CommandHandler) parseCommand(text string) (cmdName, args string, ok bool) {
@@ -135,6 +134,7 @@ func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.
 
 		return
 	}
+
 	if err := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️"); err != nil {
 		h.logger.Error("Failed to send rate limit reaction", map[string]interface{}{
 			"error":     err.Error(),
@@ -142,6 +142,7 @@ func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.
 			"messageID": msg.MessageID,
 		})
 	}
+
 	if rateErr.Notify {
 		waitMsg := fmt.Sprintf("Too many requests. Please wait %d seconds.", int(rateErr.ResetAfter.Seconds()))
 		if err := h.messageSender.SendText(ctx, msg.Recipient, waitMsg); err != nil {
@@ -170,12 +171,14 @@ func (h *CommandHandler) executeCommand(ctx context.Context, cmdName string, msg
 	if !exists {
 		return fmt.Errorf("%w: %q", ErrCommandNotFound, cmdName)
 	}
+
 	if err := cmd.Handle(ctx, msg); err != nil {
 		h.logger.Error("Command execution failed", map[string]interface{}{
 			"command": cmdName,
 			"sender":  msg.Sender,
 			"error":   err.Error(),
 		})
+
 		if err := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "❌"); err != nil {
 			h.logger.Error("Failed to send error reaction", map[string]interface{}{
 				"error":     err.Error(),
@@ -187,6 +190,7 @@ func (h *CommandHandler) executeCommand(ctx context.Context, cmdName string, msg
 
 		return fmt.Errorf("command %q execution failed: %w", cmdName, err)
 	}
+
 	if err := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "✅"); err != nil {
 		h.logger.Error("Failed to send success reaction", map[string]interface{}{
 			"error":     err.Error(),
@@ -204,24 +208,29 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 	if !ok {
 		return
 	}
+
 	msg := message.NewMessage(msgEvent)
 	ctx, cancel := context.WithTimeout(context.Background(), defaultCommandTimeout)
 	defer cancel()
+
 	cmdName, args, isCommand := h.parseCommand(msg.GetText())
 	if !isCommand {
 		return
 	}
+
 	if err := h.rateService.Check(ctx, msg); err != nil {
 		h.handleRateLimitError(ctx, msg, err)
 
 		return
 	}
+
 	release, err := h.acquireSemaphore(ctx)
 	if err != nil {
 		h.logger.Warn("Concurrency limit exceeded", map[string]interface{}{
 			"sender": msg.Sender,
 			"error":  err.Error(),
 		})
+
 		if err := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️"); err != nil {
 			h.logger.Warn("Failed to send concurrency reaction", map[string]interface{}{
 				"error":     err.Error(),
@@ -229,6 +238,7 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 				"messageID": msg.MessageID,
 			})
 		}
+
 		if err := h.messageSender.SendText(ctx, msg.Recipient, concurrentLimitMsg); err != nil {
 			h.logger.Warn("Failed to send concurrency message", map[string]interface{}{
 				"error":     err.Error(),
@@ -240,6 +250,7 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 		return
 	}
 	defer release()
+
 	msg.Text = args
 	if err := h.executeCommand(ctx, cmdName, msg); err != nil {
 		h.logger.Error("Command handling failed", map[string]interface{}{

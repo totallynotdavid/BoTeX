@@ -27,15 +27,13 @@ type HelpCommand struct {
 	logger        *logger.Logger
 }
 
-func init() {
-	RegisterCommand(func(client *whatsmeow.Client, cfg *config.Config, handler *CommandHandler) Command {
-		return &HelpCommand{
-			config:        cfg,
-			messageSender: message.NewMessageSender(client),
-			handler:       handler,
-			logger:        logger.NewLogger(logger.INFO),
-		}
-	})
+func NewHelpCommand(client *whatsmeow.Client, cfg *config.Config, handler *CommandHandler) Command {
+	return &HelpCommand{
+		config:        cfg,
+		messageSender: message.NewMessageSender(client),
+		handler:       handler,
+		logger:        logger.NewLogger(logger.INFO),
+	}
 }
 
 func (hc *HelpCommand) Name() string {
@@ -53,6 +51,7 @@ func (hc *HelpCommand) Info() CommandInfo {
 func (hc *HelpCommand) Handle(ctx context.Context, msg *message.Message) error {
 	args := strings.TrimSpace(msg.Text)
 	var helpText string
+
 	if args == "" {
 		helpText = hc.generateGeneralHelp()
 	} else {
@@ -95,6 +94,7 @@ func (hc *HelpCommand) buildCommandDetails(cmd Command) string {
 	builder.WriteString(fmt.Sprintf(commandDetailsHeader, cmd.Name()))
 	builder.WriteString(info.Description + "\n\n")
 	builder.WriteString(fmt.Sprintf(usagePrefix, info.Usage))
+
 	if len(info.Examples) > 0 {
 		builder.WriteString(examplesHeader)
 		for _, ex := range info.Examples {
