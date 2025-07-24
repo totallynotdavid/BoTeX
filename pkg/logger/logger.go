@@ -75,6 +75,7 @@ type LoggerFactory struct {
 
 func NewLoggerFactory(defaultLevel LogLevel) *LoggerFactory {
 	logDir := "logs"
+
 	err := os.MkdirAll(logDir, DirPerm)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create logs directory: %v\n", err)

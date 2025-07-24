@@ -89,6 +89,7 @@ func (lc *LaTeXCommand) initializeToolPaths() {
 	lc.toolPaths.convert = resolveToolPath(lc.config.ConvertPath, "convert")
 
 	lc.toolPaths.cwebp = resolveToolPath(lc.config.CWebPPath, "cwebp")
+
 	verificationErr := lc.verifyToolExistence()
 	if verificationErr != nil {
 		lc.logger.Error("Tool verification failed", map[string]interface{}{"error": verificationErr.Error()})
@@ -192,6 +193,7 @@ func (renderCtx *RenderContext) registerFilePath(filename string) error {
 	}
 
 	fullPath := filepath.Join(renderCtx.tempDirectory, filename)
+
 	containmentErr := validatePathContainment(renderCtx.tempDirectory, fullPath)
 	if containmentErr != nil {
 		return containmentErr
@@ -287,8 +289,8 @@ func (lc *LaTeXCommand) renderLatex(ctx context.Context, latexCode string) ([]by
 		return nil, ctxErr
 	}
 	defer renderContext.cleanupResources()
-	writeErr := lc.writeLatexContent(renderContext, latexCode)
 
+	writeErr := lc.writeLatexContent(renderContext, latexCode)
 	if writeErr != nil {
 		return nil, writeErr
 	}
@@ -324,6 +326,7 @@ func (lc *LaTeXCommand) writeLatexContent(renderContext *RenderContext, code str
 	content := fmt.Sprintf(latexTemplate, code)
 
 	texFilePath := renderContext.filePaths[allowedBaseFilename+".tex"]
+
 	writeErr := os.WriteFile(texFilePath, []byte(content), secureFilePermissions)
 	if writeErr != nil {
 		return fmt.Errorf("%w: %w", ErrWriteTexFile, writeErr)
@@ -385,6 +388,7 @@ func (lc *LaTeXCommand) readOutputFileSecurely(filePath string) ([]byte, error) 
 	cleanPath := filepath.Clean(filePath)
 
 	directory := filepath.Dir(cleanPath)
+
 	containmentErr := validatePathContainment(directory, cleanPath)
 	if containmentErr != nil {
 		return nil, fmt.Errorf("output path validation failed: %w", containmentErr)
@@ -441,6 +445,7 @@ func (lc *LaTeXCommand) Handle(ctx context.Context, message *message.Message) er
 
 func (lc *LaTeXCommand) handleLatexCommand(ctx context.Context, message *message.Message) error {
 	latexCode := strings.TrimSpace(strings.TrimPrefix(message.Text, "!latex"))
+
 	err := lc.validateLatexInput(latexCode)
 	if err != nil {
 		return err
@@ -460,8 +465,8 @@ func (lc *LaTeXCommand) validateLatexInput(latexCode string) error {
 	if len(latexCode) > maxLatexCodeLength {
 		return ErrLatexTooLong
 	}
-	validationErr := lc.validateLatexContent(latexCode)
 
+	validationErr := lc.validateLatexContent(latexCode)
 	if validationErr != nil {
 		return validationErr
 	}
@@ -488,7 +493,7 @@ func (lc *LaTeXCommand) renderAndSendLatex(ctx context.Context, latexCode string
 		return fmt.Errorf("failed to render latex: %w", renderErr)
 	}
 
-	err := lc.messageSender.SendImage(ctx, message.Recipient, webpImage, "LaTeX Render")
+	err = lc.messageSender.SendImage(ctx, message.Recipient, webpImage, "LaTeX Render")
 	if err != nil {
 		return fmt.Errorf("failed to send latex image: %w", err)
 	}

@@ -66,13 +66,16 @@ func (hc *HelpCommand) Info() CommandInfo {
 func (hc *HelpCommand) Handle(ctx context.Context, msg *message.Message) error {
 	err := hc.handler.timeTracker.TrackCommand(ctx, "help", func(ctx context.Context) error {
 		args := strings.TrimSpace(msg.Text)
+
 		var helpText string
 
 		if args == "" {
 			helpText = hc.generateGeneralHelp()
 		} else {
 			cmdName := strings.Split(args, " ")[0]
+
 			var found bool
+
 			helpText, found = hc.generateCommandHelp(cmdName)
 			if !found {
 				helpText = fmt.Sprintf(commandNotFoundMsg, cmdName)
