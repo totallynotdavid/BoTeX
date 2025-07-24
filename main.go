@@ -34,12 +34,12 @@ func NewBot(cfg *config.Config, loggerFactory *logger.LoggerFactory) (*Bot, erro
 	appLogger := loggerFactory.GetLogger("bot")
 
 	dbLog := waLog.Stdout("Database", cfg.LogLevel, false)
-	container, err := sqlstore.New("sqlite3", cfg.DBPath, dbLog)
+	container, err := sqlstore.New(context.Background(), "sqlite3", cfg.DBPath, dbLog)
 	if err != nil {
 		return nil, fmt.Errorf("database initialization failed: %w", err)
 	}
 
-	deviceStore, err := container.GetFirstDevice()
+	deviceStore, err := container.GetFirstDevice(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device store: %w", err)
 	}
