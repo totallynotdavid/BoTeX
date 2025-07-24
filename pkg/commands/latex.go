@@ -378,6 +378,10 @@ func (lc *LaTeXCommand) Name() string {
 	return "latex"
 }
 
+func (lc *LaTeXCommand) RequiredPermission() string {
+	return "use_latex"
+}
+
 func (lc *LaTeXCommand) Info() CommandInfo {
 	return CommandInfo{
 		Description: "Render LaTeX equations into WebP images",

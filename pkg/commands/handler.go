@@ -2,11 +2,13 @@ package commands
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"botex/pkg/auth"
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/message"
@@ -56,18 +58,31 @@ func (r *CommandRegistry) Register(cmd Command) {
 }
 
 type CommandHandler struct {
-	client        *whatsmeow.Client
-	commands      map[string]Command
-	config        *config.Config
-	messageSender *message.MessageSender
-	logger        *logger.Logger
-	rateService   *ratelimit.RateLimitService
-	semaphore     chan struct{}
-	timeTracker   *timing.Tracker
+	client         *whatsmeow.Client
+	commands       map[string]Command
+	config         *config.Config
+	messageSender  *message.MessageSender
+	logger         *logger.Logger
+	rateService    *ratelimit.RateLimitService
+	semaphore      chan struct{}
+	timeTracker    *timing.Tracker
+	authService    *auth.Service
+	authMiddleware *auth.Middleware
 }
 
 func NewCommandHandler(client *whatsmeow.Client, config *config.Config, registry *CommandRegistry, loggerFactory *logger.LoggerFactory) (*CommandHandler, error) {
 	cmdLogger := loggerFactory.GetLogger("command-handler")
+
+	// Initialize auth service
+	db, err := sql.Open("sqlite3", config.DBPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+	authService, err := auth.NewService(db, loggerFactory)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create auth service: %w", err)
+	}
+	authMiddleware := auth.NewMiddleware(authService)
 
 	limiter := ratelimit.NewLimiter(
 		config.RateLimit.Requests,
@@ -93,14 +108,16 @@ func NewCommandHandler(client *whatsmeow.Client, config *config.Config, registry
 	timeTracker := timing.NewTrackerFromConfig(config, loggerFactory.GetLogger("timing"))
 
 	handler := &CommandHandler{
-		client:        client,
-		commands:      make(map[string]Command),
-		config:        config,
-		messageSender: message.NewMessageSender(client),
-		logger:        cmdLogger,
-		rateService:   rateService,
-		semaphore:     make(chan struct{}, config.MaxConcurrent),
-		timeTracker:   timeTracker,
+		client:         client,
+		commands:       make(map[string]Command),
+		config:         config,
+		messageSender:  message.NewMessageSender(client),
+		logger:         cmdLogger,
+		rateService:    rateService,
+		semaphore:      make(chan struct{}, config.MaxConcurrent),
+		timeTracker:    timeTracker,
+		authService:    authService,
+		authMiddleware: authMiddleware,
 	}
 
 	for _, cmd := range registry.commands {
@@ -230,6 +247,20 @@ func (h *CommandHandler) executeCommand(ctx context.Context, cmdName string, msg
 	cmd, exists := h.commands[cmdName]
 	if !exists {
 		return fmt.Errorf("%w: %q", ErrCommandNotFound, cmdName)
+	}
+
+	// Check if command requires permission
+	if permCmd, ok := cmd.(interface{ RequiredPermission() string }); ok {
+		permission := permCmd.RequiredPermission()
+		if err := h.authMiddleware.RequirePermission(permission)(ctx, msg.Sender.String()); err != nil {
+			h.logger.Warn("Permission denied", map[string]interface{}{
+				"command":    cmdName,
+				"sender":     msg.Sender,
+				"permission": permission,
+			})
+
+			return fmt.Errorf("permission denied: %w", err)
+		}
 	}
 
 	if err := h.timeTracker.TrackCommand(ctx, cmdName, func(ctx context.Context) error {
