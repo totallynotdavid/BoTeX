@@ -34,6 +34,7 @@ func NewBot(cfg *config.Config, loggerFactory *logger.LoggerFactory) (*Bot, erro
 	appLogger := loggerFactory.GetLogger("bot")
 
 	dbLog := waLog.Stdout("Database", cfg.LogLevel, false)
+
 	container, err := sqlstore.New(context.Background(), "sqlite3", cfg.DBPath, dbLog)
 	if err != nil {
 		return nil, fmt.Errorf("database initialization failed: %w", err)
@@ -95,7 +96,8 @@ func (b *Bot) handleQRLogin() error {
 		return fmt.Errorf("failed to get QR channel: %w", err)
 	}
 
-	if err := b.client.Connect(); err != nil {
+	err = b.client.Connect()
+	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
 
@@ -116,7 +118,8 @@ func (b *Bot) handleQRLogin() error {
 }
 
 func (b *Bot) connect() error {
-	if err := b.client.Connect(); err != nil {
+	err := b.client.Connect()
+	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
 
@@ -128,6 +131,7 @@ func (b *Bot) Shutdown() {
 	defer b.logger.Info("Shutdown complete", nil)
 
 	b.commandHandler.Close()
+
 	if b.client.IsConnected() {
 		b.client.Disconnect()
 	}

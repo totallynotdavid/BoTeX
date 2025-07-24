@@ -60,12 +60,15 @@ func (m *Message) GetText() string {
 	if m.Text != "" {
 		return m.Text
 	}
+
 	if m.ExtendedText != nil {
 		return m.ExtendedText.GetText()
 	}
+
 	if m.ImageMessage != nil {
 		return m.ImageMessage.GetCaption()
 	}
+
 	if m.DocumentMessage != nil {
 		return m.DocumentMessage.GetCaption()
 	}

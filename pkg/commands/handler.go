@@ -127,10 +127,12 @@ func (h *CommandHandler) parseCommand(text string) (cmdName, args string, ok boo
 	if !strings.HasPrefix(text, "!") {
 		return
 	}
+
 	parts := strings.Fields(text[1:])
 	if len(parts) == 0 {
 		return
 	}
+
 	cmdName = parts[0]
 	args = strings.Join(parts[1:], " ")
 	ok = true
@@ -296,6 +298,7 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 	}
 
 	msg := message.NewMessage(msgEvent)
+
 	ctx, cancel := context.WithTimeout(context.Background(), defaultCommandTimeout)
 	defer cancel()
 

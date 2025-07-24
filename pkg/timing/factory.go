@@ -28,6 +28,7 @@ func ParseLevel(levelStr string, logger *logger.Logger) Level {
 	})
 
 	level := Disabled
+
 	switch strings.ToLower(levelStr) {
 	case "disabled":
 		level = Disabled

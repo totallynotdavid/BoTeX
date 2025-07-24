@@ -87,8 +87,10 @@ func (lc *LaTeXCommand) initializeToolPaths() {
 	}
 	lc.toolPaths.pdflatex = resolveToolPath(lc.config.PDFLatexPath, "pdflatex")
 	lc.toolPaths.convert = resolveToolPath(lc.config.ConvertPath, "convert")
+
 	lc.toolPaths.cwebp = resolveToolPath(lc.config.CWebPPath, "cwebp")
-	if verificationErr := lc.verifyToolExistence(); verificationErr != nil {
+	verificationErr := lc.verifyToolExistence()
+	if verificationErr != nil {
 		lc.logger.Error("Tool verification failed", map[string]interface{}{"error": verificationErr.Error()})
 	}
 }
@@ -128,7 +130,8 @@ func (lc *LaTeXCommand) verifyToolExistence() error {
 		},
 	}
 	for _, tool := range toolVerifications {
-		if validationErr := tool.validationFn(tool.path); validationErr != nil {
+		validationErr := tool.validationFn(tool.path)
+		if validationErr != nil {
 			return fmt.Errorf("%w: %s (%s)", ErrToolNotFound, tool.name, tool.path)
 		}
 	}
@@ -140,6 +143,7 @@ func validateAbsoluteExecutablePath(path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("%w: %s", ErrPathNotAbsolute, path)
 	}
+
 	if _, statErr := os.Stat(path); statErr != nil {
 		return fmt.Errorf("path verification failed: %w", statErr)
 	}
@@ -152,15 +156,18 @@ func (lc *LaTeXCommand) createRenderContext() (*RenderContext, error) {
 	if dirErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTempDirCreation, dirErr)
 	}
+
 	absoluteTempDir, absErr := filepath.Abs(tempDirectory)
 	if absErr != nil {
 		return nil, fmt.Errorf("absolute path conversion failed: %w", absErr)
 	}
+
 	renderContext := &RenderContext{
 		tempDirectory: absoluteTempDir,
 		filePaths:     make(map[string]string),
 		logger:        lc.logger,
 	}
+
 	requiredFiles := []string{
 		allowedBaseFilename + ".tex",
 		allowedBaseFilename + ".pdf",
@@ -168,7 +175,8 @@ func (lc *LaTeXCommand) createRenderContext() (*RenderContext, error) {
 		allowedBaseFilename + ".webp",
 	}
 	for _, filename := range requiredFiles {
-		if registerErr := renderContext.registerFilePath(filename); registerErr != nil {
+		registerErr := renderContext.registerFilePath(filename)
+		if registerErr != nil {
 			renderContext.cleanupResources()
 
 			return nil, registerErr
@@ -182,10 +190,13 @@ func (renderCtx *RenderContext) registerFilePath(filename string) error {
 	if !isAllowedFilename(filename) {
 		return fmt.Errorf("%w: %s", ErrPathOutsideDir, filename)
 	}
+
 	fullPath := filepath.Join(renderCtx.tempDirectory, filename)
-	if containmentErr := validatePathContainment(renderCtx.tempDirectory, fullPath); containmentErr != nil {
+	containmentErr := validatePathContainment(renderCtx.tempDirectory, fullPath)
+	if containmentErr != nil {
 		return containmentErr
 	}
+
 	renderCtx.filePaths[filename] = fullPath
 
 	return nil
@@ -208,14 +219,17 @@ func validatePathContainment(baseDirectory, targetPath string) error {
 	if baseErr != nil {
 		return fmt.Errorf("base directory error: %w", baseErr)
 	}
+
 	absoluteTarget, targetErr := filepath.Abs(targetPath)
 	if targetErr != nil {
 		return fmt.Errorf("target path error: %w", targetErr)
 	}
+
 	relativePath, relErr := filepath.Rel(absoluteBase, absoluteTarget)
 	if relErr != nil {
 		return fmt.Errorf("path relation error: %w", relErr)
 	}
+
 	if strings.HasPrefix(relativePath, "..") {
 		return ErrPathOutsideDir
 	}
@@ -224,7 +238,8 @@ func validatePathContainment(baseDirectory, targetPath string) error {
 }
 
 func (renderCtx *RenderContext) cleanupResources() {
-	if removeErr := os.RemoveAll(renderCtx.tempDirectory); removeErr != nil && renderCtx.logger != nil {
+	removeErr := os.RemoveAll(renderCtx.tempDirectory)
+	if removeErr != nil && renderCtx.logger != nil {
 		renderCtx.logger.Error("Temporary directory cleanup failed",
 			map[string]interface{}{
 				"directory": renderCtx.tempDirectory,
@@ -239,13 +254,16 @@ func (lc *LaTeXCommand) executeSecuredCommand(
 	executablePath string,
 	arguments ...string,
 ) error {
-	if validationErr := validateAbsoluteExecutablePath(executablePath); validationErr != nil {
+	validationErr := validateAbsoluteExecutablePath(executablePath)
+	if validationErr != nil {
 		return fmt.Errorf("command validation failed: %w", validationErr)
 	}
+
 	command := exec.CommandContext(ctx, executablePath, arguments...)
 	startTime := time.Now()
 	output, execErr := command.CombinedOutput()
 	executionDuration := time.Since(startTime)
+
 	logData := map[string]interface{}{
 		"command":     command.String(),
 		"duration_ms": executionDuration.Milliseconds(),
@@ -257,6 +275,7 @@ func (lc *LaTeXCommand) executeSecuredCommand(
 
 		return fmt.Errorf("%s execution failed: %w", commandName, execErr)
 	}
+
 	lc.logger.Debug(commandName+" completed", logData)
 
 	return nil
@@ -268,9 +287,12 @@ func (lc *LaTeXCommand) renderLatex(ctx context.Context, latexCode string) ([]by
 		return nil, ctxErr
 	}
 	defer renderContext.cleanupResources()
-	if writeErr := lc.writeLatexContent(renderContext, latexCode); writeErr != nil {
+	writeErr := lc.writeLatexContent(renderContext, latexCode)
+
+	if writeErr != nil {
 		return nil, writeErr
 	}
+
 	processingSteps := []struct {
 		name        string
 		executionFn func(context.Context, *RenderContext) error
@@ -280,7 +302,8 @@ func (lc *LaTeXCommand) renderLatex(ctx context.Context, latexCode string) ([]by
 		{"PNG to WebP Conversion", lc.executeWebPConversion},
 	}
 	for _, step := range processingSteps {
-		if stepErr := step.executionFn(ctx, renderContext); stepErr != nil {
+		stepErr := step.executionFn(ctx, renderContext)
+		if stepErr != nil {
 			return nil, fmt.Errorf("%s failed: %w", step.name, stepErr)
 		}
 	}
@@ -297,9 +320,12 @@ func (lc *LaTeXCommand) writeLatexContent(renderContext *RenderContext, code str
 %s
 \end{align*}
 \end{document}`
+
 	content := fmt.Sprintf(latexTemplate, code)
+
 	texFilePath := renderContext.filePaths[allowedBaseFilename+".tex"]
-	if writeErr := os.WriteFile(texFilePath, []byte(content), secureFilePermissions); writeErr != nil {
+	writeErr := os.WriteFile(texFilePath, []byte(content), secureFilePermissions)
+	if writeErr != nil {
 		return fmt.Errorf("%w: %w", ErrWriteTexFile, writeErr)
 	}
 
@@ -357,15 +383,19 @@ func (lc *LaTeXCommand) executeWebPConversion(ctx context.Context, renderContext
 
 func (lc *LaTeXCommand) readOutputFileSecurely(filePath string) ([]byte, error) {
 	cleanPath := filepath.Clean(filePath)
+
 	directory := filepath.Dir(cleanPath)
-	if containmentErr := validatePathContainment(directory, cleanPath); containmentErr != nil {
+	containmentErr := validatePathContainment(directory, cleanPath)
+	if containmentErr != nil {
 		return nil, fmt.Errorf("output path validation failed: %w", containmentErr)
 	}
+
 	if fileInfo, statErr := os.Stat(cleanPath); statErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrReadOutputImage, statErr)
 	} else if !fileInfo.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: not a regular file", ErrReadOutputImage)
 	}
+
 	content, readErr := os.ReadFile(cleanPath)
 	if readErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrReadOutputImage, readErr)
@@ -399,9 +429,10 @@ func (lc *LaTeXCommand) Handle(ctx context.Context, message *message.Message) er
 		"tracker": lc.timeTracker != nil,
 	})
 
-	if err := lc.timeTracker.TrackCommand(ctx, "latex", func(ctx context.Context) error {
+	err := lc.timeTracker.TrackCommand(ctx, "latex", func(ctx context.Context) error {
 		return lc.handleLatexCommand(ctx, message)
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("failed to handle latex command: %w", err)
 	}
 
@@ -410,7 +441,8 @@ func (lc *LaTeXCommand) Handle(ctx context.Context, message *message.Message) er
 
 func (lc *LaTeXCommand) handleLatexCommand(ctx context.Context, message *message.Message) error {
 	latexCode := strings.TrimSpace(strings.TrimPrefix(message.Text, "!latex"))
-	if err := lc.validateLatexInput(latexCode); err != nil {
+	err := lc.validateLatexInput(latexCode)
+	if err != nil {
 		return err
 	}
 
@@ -424,10 +456,13 @@ func (lc *LaTeXCommand) validateLatexInput(latexCode string) error {
 	if latexCode == "" {
 		return ErrEmptyLatex
 	}
+
 	if len(latexCode) > maxLatexCodeLength {
 		return ErrLatexTooLong
 	}
-	if validationErr := lc.validateLatexContent(latexCode); validationErr != nil {
+	validationErr := lc.validateLatexContent(latexCode)
+
+	if validationErr != nil {
 		return validationErr
 	}
 
@@ -435,14 +470,17 @@ func (lc *LaTeXCommand) validateLatexInput(latexCode string) error {
 }
 
 func (lc *LaTeXCommand) renderAndSendLatex(ctx context.Context, latexCode string, message *message.Message) error {
-	var webpImage []byte
-	var renderErr error
+	var (
+		webpImage []byte
+		renderErr error
+	)
 
-	if err := lc.timeTracker.TrackSubOperation(ctx, "latex_render", func(ctx context.Context) error {
+	err := lc.timeTracker.TrackSubOperation(ctx, "latex_render", func(ctx context.Context) error {
 		webpImage, renderErr = lc.renderLatex(ctx, latexCode)
 
 		return renderErr
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("failed to track latex render operation: %w", err)
 	}
 
@@ -450,7 +488,8 @@ func (lc *LaTeXCommand) renderAndSendLatex(ctx context.Context, latexCode string
 		return fmt.Errorf("failed to render latex: %w", renderErr)
 	}
 
-	if err := lc.messageSender.SendImage(ctx, message.Recipient, webpImage, "LaTeX Render"); err != nil {
+	err := lc.messageSender.SendImage(ctx, message.Recipient, webpImage, "LaTeX Render")
+	if err != nil {
 		return fmt.Errorf("failed to send latex image: %w", err)
 	}
 

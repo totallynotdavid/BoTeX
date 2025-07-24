@@ -75,7 +75,8 @@ type LoggerFactory struct {
 
 func NewLoggerFactory(defaultLevel LogLevel) *LoggerFactory {
 	logDir := "logs"
-	if err := os.MkdirAll(logDir, DirPerm); err != nil {
+	err := os.MkdirAll(logDir, DirPerm)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create logs directory: %v\n", err)
 		// Fallback to current directory if we can't create logs directory
 		logDir = "."
@@ -114,6 +115,7 @@ func (f *LoggerFactory) GetLogger(name string) *Logger {
 	}
 
 	logFile := filepath.Join(f.logDir, generateLogFilename())
+
 	logFile = filepath.Clean(logFile)
 	if !strings.HasPrefix(logFile, f.logDir) {
 		logFile = filepath.Join(f.logDir, "default.log")
