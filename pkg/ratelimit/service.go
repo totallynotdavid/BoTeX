@@ -65,6 +65,7 @@ func (s *RateLimitService) Stop() {
 	if !s.running {
 		return
 	}
+
 	s.cleaner.Stop()
 	s.running = false
 }

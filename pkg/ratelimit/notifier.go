@@ -40,6 +40,7 @@ func (n *Notifier) ShouldNotify(user types.JID) bool {
 func (n *Notifier) Clear(user types.JID) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+
 	delete(n.notifiedTime, user)
 }
 

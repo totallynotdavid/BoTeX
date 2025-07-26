@@ -34,6 +34,7 @@ func (c *AutoCleaner) Register(cleanable Cleanable) {
 	c.cleanables = append(c.cleanables, cleanable)
 	if !c.isRunning {
 		go c.runCleanup()
+
 		c.isRunning = true
 	}
 }

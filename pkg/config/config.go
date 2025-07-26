@@ -79,6 +79,7 @@ func Load(logger *logger.Logger) *Config {
 
 	cfg.Timing.Level = getEnv(logger, "BOTEX_TIMING_LEVEL", DefaultTimingLevel)
 	thresholdStr := getEnv(logger, "BOTEX_TIMING_THRESHOLD", "100")
+
 	threshold, err := strconv.Atoi(thresholdStr)
 	if err == nil {
 		cfg.Timing.LogThreshold = time.Duration(threshold) * time.Millisecond
@@ -99,21 +100,27 @@ func (c *Config) Validate() error {
 	if c.MaxImageSize <= 0 {
 		return ErrMaxImageSizeMustBePositive
 	}
+
 	if c.MaxConcurrent <= 0 {
 		return ErrMaxConcurrentMustBePositive
 	}
+
 	if c.RateLimit.Requests <= 0 {
 		return ErrRateLimitRequestsMustBePositive
 	}
+
 	if c.RateLimit.Period <= 0 {
 		return ErrRateLimitPeriodMustBePositive
 	}
+
 	if c.RateLimit.NotificationCooldown <= 0 {
 		return ErrRateLimitNotificationCooldownInvalid
 	}
+
 	if c.RateLimit.CleanupInterval <= 0 {
 		return ErrRateLimitCleanupIntervalInvalid
 	}
+
 	if c.Timing.LogThreshold < 0 {
 		return ErrTimingLogThresholdInvalid
 	}

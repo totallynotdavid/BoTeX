@@ -34,6 +34,7 @@ func NewBot(cfg *config.Config, loggerFactory *logger.LoggerFactory) (*Bot, erro
 	appLogger := loggerFactory.GetLogger("bot")
 
 	dbLog := waLog.Stdout("Database", cfg.LogLevel, false)
+
 	container, err := sqlstore.New(context.Background(), "sqlite3", cfg.DBPath, dbLog)
 	if err != nil {
 		return nil, fmt.Errorf("database initialization failed: %w", err)
@@ -89,13 +90,27 @@ func (b *Bot) Start() error {
 	return b.connect()
 }
 
+func (b *Bot) Shutdown() {
+	b.logger.Info("Initiating graceful shutdown", nil)
+	defer b.logger.Info("Shutdown complete", nil)
+
+	b.commandHandler.Close()
+
+	if b.client.IsConnected() {
+		b.client.Disconnect()
+	}
+
+	close(b.shutdownSignals)
+}
+
 func (b *Bot) handleQRLogin() error {
 	qrChan, err := b.client.GetQRChannel(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to get QR channel: %w", err)
 	}
 
-	if err := b.client.Connect(); err != nil {
+	err = b.client.Connect()
+	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
 
@@ -116,30 +131,20 @@ func (b *Bot) handleQRLogin() error {
 }
 
 func (b *Bot) connect() error {
-	if err := b.client.Connect(); err != nil {
+	err := b.client.Connect()
+	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
 
 	return nil
 }
 
-func (b *Bot) Shutdown() {
-	b.logger.Info("Initiating graceful shutdown", nil)
-	defer b.logger.Info("Shutdown complete", nil)
-
-	b.commandHandler.Close()
-	if b.client.IsConnected() {
-		b.client.Disconnect()
-	}
-
-	close(b.shutdownSignals)
-}
-
 func main() {
 	loggerFactory := logger.NewLoggerFactory(logger.INFO)
 	startupLogger := loggerFactory.GetLogger("startup")
 
-	if err := godotenv.Load(); err != nil {
+	err := godotenv.Load()
+	if err != nil {
 		startupLogger.Warn("Error loading .env file", map[string]interface{}{
 			"error": err.Error(),
 		})
@@ -147,7 +152,8 @@ func main() {
 
 	cfg := config.Load(startupLogger)
 
-	if err := cfg.Validate(); err != nil {
+	err = cfg.Validate()
+	if err != nil {
 		startupLogger.Error("Invalid configuration", map[string]interface{}{
 			"error": err.Error(),
 		})
@@ -164,7 +170,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := bot.Start(); err != nil {
+	err = bot.Start()
+	if err != nil {
 		bot.logger.Error("Failed to start bot", map[string]interface{}{
 			"error": err.Error(),
 		})
