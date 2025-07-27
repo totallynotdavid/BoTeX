@@ -4,7 +4,11 @@ on:
   workflow_dispatch:
   push:
     branches: [master]
+    paths:
+      - '/pkg/'
   pull_request:
+    paths:
+      - '/pkg/'
 
 jobs:
   analyze:
