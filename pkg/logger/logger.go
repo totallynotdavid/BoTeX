@@ -186,7 +186,8 @@ func (l *Logger) log(level, msg string, data map[string]interface{}) {
 		return
 	}
 
-	if _, err := fmt.Fprintf(l.file, "%s\n", string(jsonData)); err != nil {
+	_, err = fmt.Fprintf(l.file, "%s\n", string(jsonData))
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing log entry: %v\n", err)
 	}
 }

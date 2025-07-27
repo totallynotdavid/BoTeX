@@ -7,23 +7,23 @@ import (
 	"botex/pkg/logger"
 )
 
-func NewTrackerFromConfig(cfg *config.Config, logger *logger.Logger) *Tracker {
-	logger.Debug("Creating timing tracker", map[string]interface{}{
+func NewTrackerFromConfig(cfg *config.Config, log *logger.Logger) *Tracker {
+	log.Debug("Creating timing tracker", map[string]interface{}{
 		"level":     cfg.Timing.Level,
 		"threshold": cfg.Timing.LogThreshold,
 	})
 
 	return NewTracker(
 		Config{
-			Level:        ParseLevel(cfg.Timing.Level, logger),
+			Level:        ParseLevel(cfg.Timing.Level, log),
 			LogThreshold: cfg.Timing.LogThreshold,
 		},
-		logger,
+		log,
 	)
 }
 
-func ParseLevel(levelStr string, logger *logger.Logger) Level {
-	logger.Debug("Parsing timing level", map[string]interface{}{
+func ParseLevel(levelStr string, log *logger.Logger) Level {
+	log.Debug("Parsing timing level", map[string]interface{}{
 		"input": levelStr,
 	})
 
@@ -40,7 +40,7 @@ func ParseLevel(levelStr string, logger *logger.Logger) Level {
 		level = Debug
 	}
 
-	logger.Debug("Parsed timing level", map[string]interface{}{
+	log.Debug("Parsed timing level", map[string]interface{}{
 		"level": level,
 	})
 

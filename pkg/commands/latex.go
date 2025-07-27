@@ -69,6 +69,41 @@ func NewLaTeXCommand(client *whatsmeow.Client, cfg *config.Config, timeTracker *
 	return command
 }
 
+func (lc *LaTeXCommand) Name() string {
+	return "latex"
+}
+
+func (lc *LaTeXCommand) Info() CommandInfo {
+	return CommandInfo{
+		Description: "Render LaTeX equations into WebP images",
+		Usage:       "!latex <equation>",
+		Examples: []string{
+			"!latex x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}",
+			"!latex \\int_{a}^{b} f(x)\\,dx = F(b) - F(a)",
+		},
+	}
+}
+
+func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error {
+	lc.logger.Info("LaTeX command received", map[string]interface{}{
+		"sender": msg.Sender,
+		"text":   msg.Text,
+	})
+
+	lc.logger.Debug("Starting LaTeX command timing", map[string]interface{}{
+		"tracker": lc.timeTracker != nil,
+	})
+
+	err := lc.timeTracker.TrackCommand(ctx, "latex", func(ctx context.Context) error {
+		return lc.handleLatexCommand(ctx, msg)
+	})
+	if err != nil {
+		return fmt.Errorf("failed to handle latex command: %w", err)
+	}
+
+	return nil
+}
+
 func (lc *LaTeXCommand) initializeToolPaths() {
 	resolveToolPath := func(configPath, defaultExecutable string) string {
 		if configPath != "" {
@@ -145,7 +180,8 @@ func validateAbsoluteExecutablePath(path string) error {
 		return fmt.Errorf("%w: %s", ErrPathNotAbsolute, path)
 	}
 
-	if _, statErr := os.Stat(path); statErr != nil {
+	_, statErr := os.Stat(path)
+	if statErr != nil {
 		return fmt.Errorf("path verification failed: %w", statErr)
 	}
 
@@ -394,9 +430,12 @@ func (lc *LaTeXCommand) readOutputFileSecurely(filePath string) ([]byte, error) 
 		return nil, fmt.Errorf("output path validation failed: %w", containmentErr)
 	}
 
-	if fileInfo, statErr := os.Stat(cleanPath); statErr != nil {
+	fileInfo, statErr := os.Stat(cleanPath)
+	if statErr != nil {
 		return nil, fmt.Errorf("%w: %w", ErrReadOutputImage, statErr)
-	} else if !fileInfo.Mode().IsRegular() {
+	}
+
+	if !fileInfo.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: not a regular file", ErrReadOutputImage)
 	}
 
@@ -408,43 +447,8 @@ func (lc *LaTeXCommand) readOutputFileSecurely(filePath string) ([]byte, error) 
 	return content, nil
 }
 
-func (lc *LaTeXCommand) Name() string {
-	return "latex"
-}
-
-func (lc *LaTeXCommand) Info() CommandInfo {
-	return CommandInfo{
-		Description: "Render LaTeX equations into WebP images",
-		Usage:       "!latex <equation>",
-		Examples: []string{
-			"!latex x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}",
-			"!latex \\int_{a}^{b} f(x)\\,dx = F(b) - F(a)",
-		},
-	}
-}
-
-func (lc *LaTeXCommand) Handle(ctx context.Context, message *message.Message) error {
-	lc.logger.Info("LaTeX command received", map[string]interface{}{
-		"sender": message.Sender,
-		"text":   message.Text,
-	})
-
-	lc.logger.Debug("Starting LaTeX command timing", map[string]interface{}{
-		"tracker": lc.timeTracker != nil,
-	})
-
-	err := lc.timeTracker.TrackCommand(ctx, "latex", func(ctx context.Context) error {
-		return lc.handleLatexCommand(ctx, message)
-	})
-	if err != nil {
-		return fmt.Errorf("failed to handle latex command: %w", err)
-	}
-
-	return nil
-}
-
-func (lc *LaTeXCommand) handleLatexCommand(ctx context.Context, message *message.Message) error {
-	latexCode := strings.TrimSpace(strings.TrimPrefix(message.Text, "!latex"))
+func (lc *LaTeXCommand) handleLatexCommand(ctx context.Context, msg *message.Message) error {
+	latexCode := strings.TrimSpace(strings.TrimPrefix(msg.Text, "!latex"))
 
 	err := lc.validateLatexInput(latexCode)
 	if err != nil {
@@ -454,7 +458,7 @@ func (lc *LaTeXCommand) handleLatexCommand(ctx context.Context, message *message
 	renderCtx, cancel := context.WithTimeout(ctx, lc.renderTimeout)
 	defer cancel()
 
-	return lc.renderAndSendLatex(renderCtx, latexCode, message)
+	return lc.renderAndSendLatex(renderCtx, latexCode, msg)
 }
 
 func (lc *LaTeXCommand) validateLatexInput(latexCode string) error {
@@ -474,7 +478,7 @@ func (lc *LaTeXCommand) validateLatexInput(latexCode string) error {
 	return nil
 }
 
-func (lc *LaTeXCommand) renderAndSendLatex(ctx context.Context, latexCode string, message *message.Message) error {
+func (lc *LaTeXCommand) renderAndSendLatex(ctx context.Context, latexCode string, msg *message.Message) error {
 	var (
 		webpImage []byte
 		renderErr error
@@ -493,7 +497,7 @@ func (lc *LaTeXCommand) renderAndSendLatex(ctx context.Context, latexCode string
 		return fmt.Errorf("failed to render latex: %w", renderErr)
 	}
 
-	err = lc.messageSender.SendImage(ctx, message.Recipient, webpImage, "LaTeX Render")
+	err = lc.messageSender.SendImage(ctx, msg.Recipient, webpImage, "LaTeX Render")
 	if err != nil {
 		return fmt.Errorf("failed to send latex image: %w", err)
 	}

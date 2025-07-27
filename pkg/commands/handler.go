@@ -66,18 +66,18 @@ type CommandHandler struct {
 	timeTracker   *timing.Tracker
 }
 
-func NewCommandHandler(client *whatsmeow.Client, config *config.Config, registry *CommandRegistry, loggerFactory *logger.LoggerFactory) (*CommandHandler, error) {
+func NewCommandHandler(client *whatsmeow.Client, cfg *config.Config, registry *CommandRegistry, loggerFactory *logger.LoggerFactory) (*CommandHandler, error) {
 	cmdLogger := loggerFactory.GetLogger("command-handler")
 
 	limiter := ratelimit.NewLimiter(
-		config.RateLimit.Requests,
-		config.RateLimit.Period,
+		cfg.RateLimit.Requests,
+		cfg.RateLimit.Period,
 	)
 	notifier := ratelimit.NewNotifier(
-		config.RateLimit.NotificationCooldown,
+		cfg.RateLimit.NotificationCooldown,
 	)
 	cleaner := ratelimit.NewAutoCleaner(
-		config.RateLimit.CleanupInterval,
+		cfg.RateLimit.CleanupInterval,
 	)
 	rateService := ratelimit.NewRateLimitService(
 		limiter,
@@ -86,20 +86,21 @@ func NewCommandHandler(client *whatsmeow.Client, config *config.Config, registry
 		cmdLogger,
 	)
 
-	if err := rateService.Start(); err != nil {
+	err := rateService.Start()
+	if err != nil {
 		return nil, fmt.Errorf("failed to start rate limiter: %w", err)
 	}
 
-	timeTracker := timing.NewTrackerFromConfig(config, loggerFactory.GetLogger("timing"))
+	timeTracker := timing.NewTrackerFromConfig(cfg, loggerFactory.GetLogger("timing"))
 
 	handler := &CommandHandler{
 		client:        client,
 		commands:      make(map[string]Command),
-		config:        config,
+		config:        cfg,
 		messageSender: message.NewMessageSender(client),
 		logger:        cmdLogger,
 		rateService:   rateService,
-		semaphore:     make(chan struct{}, config.MaxConcurrent),
+		semaphore:     make(chan struct{}, cfg.MaxConcurrent),
 		timeTracker:   timeTracker,
 	}
 
@@ -121,6 +122,82 @@ func (h *CommandHandler) GetCommands() []Command {
 
 func (h *CommandHandler) Close() {
 	h.rateService.Stop()
+}
+
+func (h *CommandHandler) HandleEvent(evt interface{}) {
+	msgEvent, ok := evt.(*events.Message)
+	if !ok {
+		return
+	}
+
+	msg := message.NewMessage(msgEvent)
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultCommandTimeout)
+	defer cancel()
+
+	err := h.timeTracker.Track(ctx, "handle_message", timing.Basic, func(ctx context.Context) error {
+		cmdName, args, isCommand := h.parseCommand(msg.GetText())
+		if !isCommand {
+			return nil
+		}
+
+		ctx = timing.WithOperation(ctx, "command:"+cmdName)
+
+		var rateLimitErr error
+
+		trackSubOpErr := h.timeTracker.TrackSubOperation(ctx, "check_rate_limit", func(ctx context.Context) error {
+			rateLimitErr = h.rateService.Check(ctx, msg)
+
+			return nil
+		})
+		if trackSubOpErr != nil {
+			h.logger.Error("Failed to track rate limit check", map[string]interface{}{
+				"error": trackSubOpErr.Error(),
+			})
+		}
+
+		if rateLimitErr != nil {
+			h.handleRateLimitError(ctx, msg, rateLimitErr)
+
+			return nil
+		}
+
+		var (
+			release func()
+			semErr  error
+		)
+
+		trackSubOpErr = h.timeTracker.TrackSubOperation(ctx, "acquire_semaphore", func(ctx context.Context) error {
+			release, semErr = h.acquireSemaphore(ctx)
+
+			return nil
+		})
+		if trackSubOpErr != nil {
+			h.logger.Error("Failed to track semaphore acquisition", map[string]interface{}{
+				"error": trackSubOpErr.Error(),
+			})
+		}
+
+		if semErr != nil {
+			h.logger.Warn("Concurrency limit exceeded", map[string]interface{}{
+				"sender": msg.Sender,
+				"error":  semErr.Error(),
+			})
+
+			return h.handleConcurrencyLimit(ctx, msg)
+		}
+
+		defer release()
+
+		msg.Text = args
+
+		return h.executeCommand(ctx, cmdName, msg)
+	})
+	if err != nil {
+		h.logger.Error("Failed to track message handling", map[string]interface{}{
+			"error": err.Error(),
+		})
+	}
 }
 
 func (h *CommandHandler) parseCommand(text string) (cmdName, args string, ok bool) {
@@ -151,8 +228,11 @@ func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.
 		return
 	}
 
-	if err := h.timeTracker.TrackSubOperation(ctx, "handle_rate_limit", func(ctx context.Context) error {
-		if err := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️"); err != nil {
+	trackErr := h.timeTracker.TrackSubOperation(ctx, "handle_rate_limit", func(ctx context.Context) error {
+		var err error
+
+		err = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
+		if err != nil {
 			h.logger.Error("Failed to send rate limit reaction", map[string]interface{}{
 				"error":     err.Error(),
 				"sender":    msg.Sender,
@@ -162,7 +242,9 @@ func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.
 
 		if rateErr.Notify {
 			waitMsg := fmt.Sprintf("Too many requests. Please wait %d seconds.", int(rateErr.ResetAfter.Seconds()))
-			if err := h.messageSender.SendText(ctx, msg.Recipient, waitMsg); err != nil {
+
+			err = h.messageSender.SendText(ctx, msg.Recipient, waitMsg)
+			if err != nil {
 				h.logger.Error("Failed to send rate limit wait message", map[string]interface{}{
 					"error":     err.Error(),
 					"sender":    msg.Sender,
@@ -172,9 +254,10 @@ func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.
 		}
 
 		return nil
-	}); err != nil {
+	})
+	if trackErr != nil {
 		h.logger.Error("Failed to track rate limit handling", map[string]interface{}{
-			"error": err.Error(),
+			"error": trackErr.Error(),
 		})
 	}
 }
@@ -191,8 +274,9 @@ func (h *CommandHandler) acquireSemaphore(ctx context.Context) (func(), error) {
 }
 
 func (h *CommandHandler) sendErrorReaction(ctx context.Context, msg *message.Message, cmdName string) error {
-	if err := h.timeTracker.TrackSubOperation(ctx, "send_error_reaction", func(ctx context.Context) error {
-		if err := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "❌"); err != nil {
+	err := h.timeTracker.TrackSubOperation(ctx, "send_error_reaction", func(ctx context.Context) error {
+		err := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "❌")
+		if err != nil {
 			h.logger.Error("Failed to send error reaction", map[string]interface{}{
 				"error":     err.Error(),
 				"command":   cmdName,
@@ -202,7 +286,8 @@ func (h *CommandHandler) sendErrorReaction(ctx context.Context, msg *message.Mes
 		}
 
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("failed to track error reaction: %w", err)
 	}
 
@@ -210,8 +295,9 @@ func (h *CommandHandler) sendErrorReaction(ctx context.Context, msg *message.Mes
 }
 
 func (h *CommandHandler) sendSuccessReaction(ctx context.Context, msg *message.Message, cmdName string) error {
-	if err := h.timeTracker.TrackSubOperation(ctx, "send_success_reaction", func(ctx context.Context) error {
-		if err := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "✅"); err != nil {
+	err := h.timeTracker.TrackSubOperation(ctx, "send_success_reaction", func(ctx context.Context) error {
+		err := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "✅")
+		if err != nil {
 			h.logger.Error("Failed to send success reaction", map[string]interface{}{
 				"error":     err.Error(),
 				"command":   cmdName,
@@ -221,7 +307,8 @@ func (h *CommandHandler) sendSuccessReaction(ctx context.Context, msg *message.M
 		}
 
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("failed to track success reaction: %w", err)
 	}
 
@@ -234,15 +321,19 @@ func (h *CommandHandler) executeCommand(ctx context.Context, cmdName string, msg
 		return fmt.Errorf("%w: %q", ErrCommandNotFound, cmdName)
 	}
 
-	if err := h.timeTracker.TrackCommand(ctx, cmdName, func(ctx context.Context) error {
-		if err := cmd.Handle(ctx, msg); err != nil {
+	err := h.timeTracker.TrackCommand(ctx, cmdName, func(ctx context.Context) error {
+		var err error
+
+		err = cmd.Handle(ctx, msg)
+		if err != nil {
 			h.logger.Error("Command execution failed", map[string]interface{}{
 				"command": cmdName,
 				"sender":  msg.Sender,
 				"error":   err.Error(),
 			})
 
-			if err := h.sendErrorReaction(ctx, msg, cmdName); err != nil {
+			err = h.sendErrorReaction(ctx, msg, cmdName)
+			if err != nil {
 				h.logger.Error("Failed to track error reaction", map[string]interface{}{
 					"error": err.Error(),
 				})
@@ -251,14 +342,16 @@ func (h *CommandHandler) executeCommand(ctx context.Context, cmdName string, msg
 			return fmt.Errorf("command %q execution failed: %w", cmdName, err)
 		}
 
-		if err := h.sendSuccessReaction(ctx, msg, cmdName); err != nil {
+		err = h.sendSuccessReaction(ctx, msg, cmdName)
+		if err != nil {
 			h.logger.Error("Failed to track success reaction", map[string]interface{}{
 				"error": err.Error(),
 			})
 		}
 
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("failed to track command execution: %w", err)
 	}
 
@@ -266,8 +359,11 @@ func (h *CommandHandler) executeCommand(ctx context.Context, cmdName string, msg
 }
 
 func (h *CommandHandler) handleConcurrencyLimit(ctx context.Context, msg *message.Message) error {
-	if err := h.timeTracker.TrackSubOperation(ctx, "handle_concurrency_limit", func(ctx context.Context) error {
-		if err := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️"); err != nil {
+	err := h.timeTracker.TrackSubOperation(ctx, "handle_concurrency_limit", func(ctx context.Context) error {
+		var err error
+
+		err = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
+		if err != nil {
 			h.logger.Warn("Failed to send concurrency reaction", map[string]interface{}{
 				"error":     err.Error(),
 				"sender":    msg.Sender,
@@ -275,7 +371,8 @@ func (h *CommandHandler) handleConcurrencyLimit(ctx context.Context, msg *messag
 			})
 		}
 
-		if err := h.messageSender.SendText(ctx, msg.Recipient, concurrentLimitMsg); err != nil {
+		err = h.messageSender.SendText(ctx, msg.Recipient, concurrentLimitMsg)
+		if err != nil {
 			h.logger.Warn("Failed to send concurrency message", map[string]interface{}{
 				"error":     err.Error(),
 				"sender":    msg.Sender,
@@ -284,77 +381,10 @@ func (h *CommandHandler) handleConcurrencyLimit(ctx context.Context, msg *messag
 		}
 
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("failed to track concurrency limit handling: %w", err)
 	}
 
 	return nil
-}
-
-func (h *CommandHandler) HandleEvent(evt interface{}) {
-	msgEvent, ok := evt.(*events.Message)
-	if !ok {
-		return
-	}
-
-	msg := message.NewMessage(msgEvent)
-
-	ctx, cancel := context.WithTimeout(context.Background(), defaultCommandTimeout)
-	defer cancel()
-
-	if err := h.timeTracker.Track(ctx, "handle_message", timing.Basic, func(ctx context.Context) error {
-		cmdName, args, isCommand := h.parseCommand(msg.GetText())
-		if !isCommand {
-			return nil
-		}
-
-		ctx = timing.WithOperation(ctx, "command:"+cmdName)
-
-		var rateLimitErr error
-		if err := h.timeTracker.TrackSubOperation(ctx, "check_rate_limit", func(ctx context.Context) error {
-			rateLimitErr = h.rateService.Check(ctx, msg)
-
-			return nil
-		}); err != nil {
-			h.logger.Error("Failed to track rate limit check", map[string]interface{}{
-				"error": err.Error(),
-			})
-		}
-
-		if rateLimitErr != nil {
-			h.handleRateLimitError(ctx, msg, rateLimitErr)
-
-			return nil
-		}
-
-		var release func()
-		var semErr error
-		if err := h.timeTracker.TrackSubOperation(ctx, "acquire_semaphore", func(ctx context.Context) error {
-			release, semErr = h.acquireSemaphore(ctx)
-
-			return nil
-		}); err != nil {
-			h.logger.Error("Failed to track semaphore acquisition", map[string]interface{}{
-				"error": err.Error(),
-			})
-		}
-
-		if semErr != nil {
-			h.logger.Warn("Concurrency limit exceeded", map[string]interface{}{
-				"sender": msg.Sender,
-				"error":  semErr.Error(),
-			})
-
-			return h.handleConcurrencyLimit(ctx, msg)
-		}
-		defer release()
-
-		msg.Text = args
-
-		return h.executeCommand(ctx, cmdName, msg)
-	}); err != nil {
-		h.logger.Error("Failed to track message handling", map[string]interface{}{
-			"error": err.Error(),
-		})
-	}
 }

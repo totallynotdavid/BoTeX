@@ -38,13 +38,13 @@ func NewRateLimitService(
 	limiter *Limiter,
 	notifier *Notifier,
 	cleaner *AutoCleaner,
-	logger *logger.Logger,
+	log *logger.Logger,
 ) *RateLimitService {
 	return &RateLimitService{
 		limiter:  limiter,
 		notifier: notifier,
 		cleaner:  cleaner,
-		logger:   logger,
+		logger:   log,
 		running:  false,
 	}
 }
