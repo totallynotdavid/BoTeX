@@ -51,8 +51,7 @@ git clone https://github.com/totallynotdavid/BoTeX
 cd BoTeX
 
 # Run the bot
-export CGO_ENABLED=1
-go run .
+make dev # equivalent to `go run .`
 ```
 
 ## Using the Bot
