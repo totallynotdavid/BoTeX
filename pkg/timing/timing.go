@@ -31,10 +31,10 @@ type Tracker struct {
 }
 
 // NewTracker creates a new performance tracker with the given configuration.
-func NewTracker(config Config, logger *logger.Logger) *Tracker {
+func NewTracker(config Config, log *logger.Logger) *Tracker {
 	return &Tracker{
 		config: config,
-		logger: logger,
+		logger: log,
 	}
 }
 

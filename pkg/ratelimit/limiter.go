@@ -36,8 +36,11 @@ func (l *Limiter) Check(user types.JID) Result {
 	requests := l.requests[user]
 
 	// Filter valid requests and find earliest timestamp
-	var validRequests []time.Time
-	var earliest time.Time
+	var (
+		validRequests []time.Time
+		earliest      time.Time
+	)
+
 	for _, t := range requests {
 		if now.Sub(t) <= l.period {
 			validRequests = append(validRequests, t)
@@ -79,11 +82,13 @@ func (l *Limiter) Cleanup() {
 	now := time.Now()
 	for user, requests := range l.requests {
 		var valid []time.Time
+
 		for _, t := range requests {
 			if now.Sub(t) <= l.period {
 				valid = append(valid, t)
 			}
 		}
+
 		if len(valid) == 0 {
 			delete(l.requests, user)
 		} else {

@@ -64,15 +64,18 @@ func (hc *HelpCommand) Info() CommandInfo {
 }
 
 func (hc *HelpCommand) Handle(ctx context.Context, msg *message.Message) error {
-	if err := hc.handler.timeTracker.TrackCommand(ctx, "help", func(ctx context.Context) error {
+	err := hc.handler.timeTracker.TrackCommand(ctx, "help", func(ctx context.Context) error {
 		args := strings.TrimSpace(msg.Text)
+
 		var helpText string
 
 		if args == "" {
 			helpText = hc.generateGeneralHelp()
 		} else {
 			cmdName := strings.Split(args, " ")[0]
+
 			var found bool
+
 			helpText, found = hc.generateCommandHelp(cmdName)
 			if !found {
 				helpText = fmt.Sprintf(commandNotFoundMsg, cmdName)
@@ -80,7 +83,8 @@ func (hc *HelpCommand) Handle(ctx context.Context, msg *message.Message) error {
 		}
 
 		return hc.sendHelpResponse(ctx, msg, helpText)
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("failed to track help command execution: %w", err)
 	}
 
@@ -90,11 +94,13 @@ func (hc *HelpCommand) Handle(ctx context.Context, msg *message.Message) error {
 func (hc *HelpCommand) generateGeneralHelp() string {
 	var builder strings.Builder
 	builder.WriteString(helpHeader)
+
 	for _, cmd := range hc.handler.GetCommands() {
 		if cmd.Name() != "help" {
 			builder.WriteString(fmt.Sprintf("• *%s* - %s\n", cmd.Name(), cmd.Info().Description))
 		}
 	}
+
 	builder.WriteString(helpFooter)
 
 	return builder.String()
@@ -111,6 +117,7 @@ func (hc *HelpCommand) generateCommandHelp(cmdName string) (string, bool) {
 
 func (hc *HelpCommand) buildCommandDetails(cmd Command) string {
 	var builder strings.Builder
+
 	info := cmd.Info()
 	builder.WriteString(fmt.Sprintf(commandDetailsHeader, cmd.Name()))
 	builder.WriteString(info.Description + "\n\n")
@@ -118,6 +125,7 @@ func (hc *HelpCommand) buildCommandDetails(cmd Command) string {
 
 	if len(info.Examples) > 0 {
 		builder.WriteString(examplesHeader)
+
 		for _, ex := range info.Examples {
 			builder.WriteString(fmt.Sprintf("`%s`\n", ex))
 		}
@@ -127,7 +135,8 @@ func (hc *HelpCommand) buildCommandDetails(cmd Command) string {
 }
 
 func (hc *HelpCommand) sendHelpResponse(ctx context.Context, msg *message.Message, helpText string) error {
-	if err := hc.messageSender.SendText(ctx, msg.Recipient, helpText); err != nil {
+	err := hc.messageSender.SendText(ctx, msg.Recipient, helpText)
+	if err != nil {
 		hc.logger.Error("Failed to send help response", map[string]interface{}{
 			"recipient": msg.Recipient,
 			"error":     err.Error(),
