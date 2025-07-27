@@ -79,11 +79,11 @@ or
 If something's not working, it's usually one of three things:
 
 1. The installation didn't complete properly - run `pdflatex --version` and `convert --version` to check if TeX Live and ImageMagick are installed correctly.
-2. `whatsmeow` have known issues regarding some messages showing up only on WhatsApp web but not on a phone. If you're not seeing messages, try seeing if they show up on WhatsApp web[1].
+2. `whatsmeow` have known issues regarding some messages showing up only on WhatsApp web but not on a phone. If you're not seeing messages, try seeing if they show up on WhatsApp web[^1].
 3. The Go dependencies need updating - try `go clean -modcache` followed by `go get -u`.
 
 If you're running into an issue that isn't solved by checking these, feel free to [open an issue](https://github.com/totallynotdavid/BoTeX/issues) on GitHub. I'm always happy to help get things running smoothly.
 
 This project is open source, so feel free to use it, modify it, or suggest improvements. Thanks to the teams behind whatsmeow and matterbridge for their excellent work that made this project possible!
 
-[1]: Update (2025-07-05): This issue appears to be fixed in the latest version of whatsmeow. If you're still encountering it, make sure you're using the most recent release of the library.
+[^1]: Update (2025-07-05): This issue appears to be fixed in the latest version of whatsmeow. If you're still encountering it, make sure you're using the most recent release of the library.
