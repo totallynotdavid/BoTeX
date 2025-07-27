@@ -8,7 +8,7 @@ BoTeX is a WhatsApp bot that renders LaTeX equations into images. I created this
 
 **Setting up BoTeX requires a few tools**: [Go](https://golang.org/dl/) for running the bot, [TeX Live](https://www.tug.org/texlive/quickinstall.html) for rendering equations, and [ImageMagick](https://imagemagick.org/script/download.php) for image processing. Let's walk through the setup process.
 
-First, you'll need Go installed (we're using version 1.24.2). If you don't have it already, here's how to get it running:
+First, you'll need Go installed (we're using version 1.24.5). If you don't have it already, here's how to get it running:
 
 ```bash
 curl -OL https://go.dev/dl/go1.24.5.linux-amd64.tar.gz
