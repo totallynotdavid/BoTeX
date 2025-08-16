@@ -94,13 +94,14 @@ func (b *Bot) Start() error {
 
 func (b *Bot) Shutdown() {
 	b.logger.Info("Initiating graceful shutdown", nil)
-	defer b.logger.Info("Shutdown complete", nil)
 
 	b.commandHandler.Close()
 
 	if b.client.IsConnected() {
 		b.client.Disconnect()
 	}
+
+	b.logger.Info("Shutdown complete", nil)
 
 	err := b.loggerFactory.Close()
 	if err != nil {

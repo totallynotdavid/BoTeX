@@ -22,6 +22,8 @@ type Factory struct {
 	config  Config
 	loggers sync.Map
 	logFile *os.File
+	closed  bool
+	mu      sync.Mutex
 }
 
 var ErrEmptyLogDirectory = errors.New("log directory cannot be empty")
@@ -47,6 +49,7 @@ func NewFactory(config Config) (*Factory, error) {
 	return &Factory{
 		config:  config,
 		logFile: logFile,
+		closed:  false,
 	}, nil
 }
 
@@ -81,12 +84,21 @@ func (f *Factory) CreateWhatsmeowLogger(tag, level string) *WhatsmeowLogger {
 // Close releases any resources held by the factory.
 // It should be called when the pkg shuts down.
 func (f *Factory) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.closed {
+		return nil
+	}
+
 	if f.logFile != nil && f.logFile != os.Stdout {
 		err := f.logFile.Close()
 		if err != nil {
 			return fmt.Errorf("failed to close log file: %w", err)
 		}
 	}
+
+	f.closed = true
 
 	return nil
 }
