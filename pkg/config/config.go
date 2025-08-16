@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"botex/pkg/logger"
+	"botex/pkg/util"
 )
 
 const (
@@ -66,13 +67,13 @@ type Config struct {
 
 func Load() *Config {
 	cfg := &Config{
-		DBPath:        getEnv("BOTEX_DB_PATH", "file:botex.db?_foreign_keys=on&_journal_mode=WAL"),
-		TempDir:       getEnv("BOTEX_TEMP_DIR", os.TempDir()),
+		DBPath:        util.GetEnv("BOTEX_DB_PATH", "file:botex.db?_foreign_keys=on&_journal_mode=WAL"),
+		TempDir:       util.GetEnv("BOTEX_TEMP_DIR", os.TempDir()),
 		MaxImageSize:  DefaultMaxImageSize,
 		MaxConcurrent: DefaultMaxConcurrent,
-		PDFLatexPath:  getEnv("BOTEX_PDFLATEX_PATH", ""),
-		ConvertPath:   getEnv("BOTEX_CONVERT_PATH", ""),
-		CWebPPath:     getEnv("BOTEX_CWEBP_PATH", ""),
+		PDFLatexPath:  util.GetEnv("BOTEX_PDFLATEX_PATH", ""),
+		ConvertPath:   util.GetEnv("BOTEX_CONVERT_PATH", ""),
+		CWebPPath:     util.GetEnv("BOTEX_CWEBP_PATH", ""),
 		Logging:       logger.LoadFromEnv(),
 	}
 
@@ -81,9 +82,9 @@ func Load() *Config {
 	cfg.RateLimit.NotificationCooldown = DefaultRateLimitNotificationCooldown
 	cfg.RateLimit.CleanupInterval = DefaultRateLimitCleanupInterval
 
-	cfg.Timing.Level = getEnv("BOTEX_TIMING_LEVEL", DefaultTimingLevel)
+	cfg.Timing.Level = util.GetEnv("BOTEX_TIMING_LEVEL", DefaultTimingLevel)
 
-	thresholdStr := getEnv("BOTEX_TIMING_THRESHOLD", "100")
+	thresholdStr := util.GetEnv("BOTEX_TIMING_THRESHOLD", "100")
 
 	threshold, err := strconv.Atoi(thresholdStr)
 	if err == nil {
@@ -125,12 +126,4 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
-}
-
-func getEnv(key, defaultValue string) string {
-	if value, exists := os.LookupEnv(key); exists {
-		return value
-	}
-
-	return defaultValue
 }
