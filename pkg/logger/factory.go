@@ -92,23 +92,15 @@ func (f *Factory) Close() error {
 }
 
 func (f *Factory) createWriter(loggerName string) *Writer {
-	showInTerminal := f.shouldShowInTerminal(loggerName)
+	fileLevel := f.config.Level
 	terminalLevel := f.getTerminalLevel(loggerName)
 
-	return NewWriter(f.logFile, showInTerminal, terminalLevel)
-}
-
-func (f *Factory) shouldShowInTerminal(loggerName string) bool {
-	if !isWhatsmeowLogger(loggerName) {
-		return true
-	}
-
-	return f.config.ShowWhatsmeowInTerminal
+	return NewWriter(f.logFile, fileLevel, terminalLevel)
 }
 
 func (f *Factory) getTerminalLevel(loggerName string) LogLevel {
 	if isWhatsmeowLogger(loggerName) && !f.config.ShowWhatsmeowInTerminal {
-		return ERROR + 1
+		return DISABLED
 	}
 
 	return f.config.Level

@@ -8,17 +8,17 @@ import (
 )
 
 type Writer struct {
-	file           *os.File
-	showInTerminal bool
-	terminalLevel  LogLevel
-	mu             sync.Mutex
+	file          *os.File
+	fileLevel     LogLevel
+	terminalLevel LogLevel
+	mu            sync.Mutex
 }
 
-func NewWriter(file *os.File, showInTerminal bool, terminalLevel LogLevel) *Writer {
+func NewWriter(file *os.File, fileLevel, terminalLevel LogLevel) *Writer {
 	return &Writer{
-		file:           file,
-		showInTerminal: showInTerminal,
-		terminalLevel:  terminalLevel,
+		file:          file,
+		fileLevel:     fileLevel,
+		terminalLevel: terminalLevel,
 	}
 }
 
@@ -28,7 +28,7 @@ func (w *Writer) Write(entry Entry) error {
 
 	var writeErr error
 
-	if w.file != nil {
+	if w.file != nil && w.fileLevel.IsEnabled(entry.Level) {
 		jsonData, err := entry.ToJSON()
 		if err != nil {
 			writeErr = fmt.Errorf("failed to marshal entry: %w", err)
@@ -40,7 +40,7 @@ func (w *Writer) Write(entry Entry) error {
 		}
 	}
 
-	if w.showInTerminal && entry.Level >= w.terminalLevel {
+	if w.terminalLevel.IsEnabled(entry.Level) {
 		log.Println(entry.ToTerminalFormat())
 	}
 

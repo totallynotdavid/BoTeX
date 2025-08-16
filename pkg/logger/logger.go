@@ -24,50 +24,49 @@ func (l *Logger) WithLevel(level LogLevel) *Logger {
 }
 
 func (l *Logger) Debug(msg string, data map[string]interface{}) {
-	if l.level <= DEBUG {
+	if l.level.IsEnabled(DEBUG) {
 		l.log(DEBUG, msg, data)
 	}
 }
 
 func (l *Logger) Info(msg string, data map[string]interface{}) {
-	if l.level <= INFO {
+	if l.level.IsEnabled(INFO) {
 		l.log(INFO, msg, data)
 	}
 }
 
 func (l *Logger) Warn(msg string, data map[string]interface{}) {
-	if l.level <= WARN {
+	if l.level.IsEnabled(WARN) {
 		l.log(WARN, msg, data)
 	}
 }
 
 func (l *Logger) Error(msg string, data map[string]interface{}) {
-	if l.level <= ERROR {
+	if l.level.IsEnabled(ERROR) {
 		l.log(ERROR, msg, data)
 	}
 }
 
-// Convenience methods for formatted logging.
 func (l *Logger) Debugf(format string, args ...interface{}) {
-	if l.level <= DEBUG {
+	if l.level.IsEnabled(DEBUG) {
 		l.log(DEBUG, fmt.Sprintf(format, args...), nil)
 	}
 }
 
 func (l *Logger) Infof(format string, args ...interface{}) {
-	if l.level <= INFO {
+	if l.level.IsEnabled(INFO) {
 		l.log(INFO, fmt.Sprintf(format, args...), nil)
 	}
 }
 
 func (l *Logger) Warnf(format string, args ...interface{}) {
-	if l.level <= WARN {
+	if l.level.IsEnabled(WARN) {
 		l.log(WARN, fmt.Sprintf(format, args...), nil)
 	}
 }
 
 func (l *Logger) Errorf(format string, args ...interface{}) {
-	if l.level <= ERROR {
+	if l.level.IsEnabled(ERROR) {
 		l.log(ERROR, fmt.Sprintf(format, args...), nil)
 	}
 }

@@ -9,16 +9,21 @@ const (
 	INFO
 	WARN
 	ERROR
+	DISABLED
 )
 
 func ParseLogLevel(levelStr string) LogLevel {
 	switch strings.ToUpper(strings.TrimSpace(levelStr)) {
 	case "DEBUG":
 		return DEBUG
+	case "INFO":
+		return INFO
 	case "WARN":
 		return WARN
 	case "ERROR":
 		return ERROR
+	case "DISABLED":
+		return DISABLED
 	default:
 		return INFO
 	}
@@ -34,7 +39,17 @@ func (l LogLevel) String() string {
 		return "WARN"
 	case ERROR:
 		return "ERROR"
+	case DISABLED:
+		return "DISABLED"
 	default:
 		return "UNKNOWN"
 	}
+}
+
+func (l LogLevel) IsEnabled(level LogLevel) bool {
+	if l == DISABLED {
+		return false
+	}
+
+	return level >= l
 }
