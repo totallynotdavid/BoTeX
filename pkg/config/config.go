@@ -41,35 +41,39 @@ var (
 
 type Config struct {
 	DBPath        string
-	LogLevel      string
 	TempDir       string
 	MaxImageSize  int64
 	MaxConcurrent int
-	RateLimit     struct {
+
+	RateLimit struct {
 		Requests             int
 		Period               time.Duration
 		NotificationCooldown time.Duration
 		CleanupInterval      time.Duration
 	}
+
 	Timing struct {
 		Level        string
 		LogThreshold time.Duration
 	}
+
+	Logging logger.Config
+
 	PDFLatexPath string
 	ConvertPath  string
 	CWebPPath    string
 }
 
-func Load(log *logger.Logger) *Config {
+func Load() *Config {
 	cfg := &Config{
-		DBPath:        getEnv(log, "BOTEX_DB_PATH", "file:botex.db?_foreign_keys=on&_journal_mode=WAL"),
-		LogLevel:      getEnv(log, "BOTEX_LOG_LEVEL", "INFO"),
-		TempDir:       getEnv(log, "BOTEX_TEMP_DIR", os.TempDir()),
+		DBPath:        getEnv("BOTEX_DB_PATH", "file:botex.db?_foreign_keys=on&_journal_mode=WAL"),
+		TempDir:       getEnv("BOTEX_TEMP_DIR", os.TempDir()),
 		MaxImageSize:  DefaultMaxImageSize,
 		MaxConcurrent: DefaultMaxConcurrent,
-		PDFLatexPath:  getEnv(log, "BOTEX_PDFLATEX_PATH", ""),
-		ConvertPath:   getEnv(log, "BOTEX_CONVERT_PATH", ""),
-		CWebPPath:     getEnv(log, "BOTEX_CWEBP_PATH", ""),
+		PDFLatexPath:  getEnv("BOTEX_PDFLATEX_PATH", ""),
+		ConvertPath:   getEnv("BOTEX_CONVERT_PATH", ""),
+		CWebPPath:     getEnv("BOTEX_CWEBP_PATH", ""),
+		Logging:       logger.LoadFromEnv(),
 	}
 
 	cfg.RateLimit.Requests = DefaultRateLimitRequests
@@ -77,8 +81,9 @@ func Load(log *logger.Logger) *Config {
 	cfg.RateLimit.NotificationCooldown = DefaultRateLimitNotificationCooldown
 	cfg.RateLimit.CleanupInterval = DefaultRateLimitCleanupInterval
 
-	cfg.Timing.Level = getEnv(log, "BOTEX_TIMING_LEVEL", DefaultTimingLevel)
-	thresholdStr := getEnv(log, "BOTEX_TIMING_THRESHOLD", "100")
+	cfg.Timing.Level = getEnv("BOTEX_TIMING_LEVEL", DefaultTimingLevel)
+
+	thresholdStr := getEnv("BOTEX_TIMING_THRESHOLD", "100")
 
 	threshold, err := strconv.Atoi(thresholdStr)
 	if err == nil {
@@ -86,12 +91,6 @@ func Load(log *logger.Logger) *Config {
 	} else {
 		cfg.Timing.LogThreshold = DefaultTimingLogThreshold
 	}
-
-	// Log the timing configuration
-	log.Info("Timing configuration loaded", map[string]interface{}{
-		"level":     cfg.Timing.Level,
-		"threshold": cfg.Timing.LogThreshold,
-	})
 
 	return cfg
 }
@@ -128,16 +127,8 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-func getEnv(log *logger.Logger, key, defaultValue string) string {
-	value, exists := os.LookupEnv(key)
-	log.Debug("Loading env var", map[string]interface{}{
-		"key":     key,
-		"exists":  exists,
-		"value":   value,
-		"default": defaultValue,
-	})
-
-	if exists {
+func getEnv(key, defaultValue string) string {
+	if value, exists := os.LookupEnv(key); exists {
 		return value
 	}
 
