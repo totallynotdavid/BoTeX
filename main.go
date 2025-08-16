@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,7 +18,6 @@ import (
 	"github.com/mdp/qrterminal/v3"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
-	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
 var ErrQRLoginTimeout = errors.New("QR login timed out")
@@ -27,13 +27,15 @@ type Bot struct {
 	commandHandler  *commands.CommandHandler
 	config          *config.Config
 	logger          *logger.Logger
+	loggerFactory   *logger.Factory
 	shutdownSignals chan os.Signal
 }
 
-func NewBot(cfg *config.Config, loggerFactory *logger.LoggerFactory) (*Bot, error) {
+func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 	appLogger := loggerFactory.GetLogger("bot")
 
-	dbLog := waLog.Stdout("Database", cfg.LogLevel, false)
+	dbLog := loggerFactory.CreateWhatsmeowLogger("Database", cfg.Logging.Level.String())
+	clientLog := loggerFactory.CreateWhatsmeowLogger("Client", cfg.Logging.Level.String())
 
 	container, err := sqlstore.New(context.Background(), "sqlite3", cfg.DBPath, dbLog)
 	if err != nil {
@@ -45,7 +47,6 @@ func NewBot(cfg *config.Config, loggerFactory *logger.LoggerFactory) (*Bot, erro
 		return nil, fmt.Errorf("failed to get device store: %w", err)
 	}
 
-	clientLog := waLog.Stdout("Client", cfg.LogLevel, false)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 
 	registry := commands.NewCommandRegistry(loggerFactory)
@@ -71,6 +72,7 @@ func NewBot(cfg *config.Config, loggerFactory *logger.LoggerFactory) (*Bot, erro
 		commandHandler:  commandHandler,
 		config:          cfg,
 		logger:          appLogger,
+		loggerFactory:   loggerFactory,
 		shutdownSignals: make(chan os.Signal, 1),
 	}, nil
 }
@@ -92,12 +94,18 @@ func (b *Bot) Start() error {
 
 func (b *Bot) Shutdown() {
 	b.logger.Info("Initiating graceful shutdown", nil)
-	defer b.logger.Info("Shutdown complete", nil)
 
 	b.commandHandler.Close()
 
 	if b.client.IsConnected() {
 		b.client.Disconnect()
+	}
+
+	b.logger.Info("Shutdown complete", nil)
+
+	err := b.loggerFactory.Close()
+	if err != nil {
+		log.Printf("Error closing logger factory: %v", err)
 	}
 
 	close(b.shutdownSignals)
@@ -139,46 +147,52 @@ func (b *Bot) connect() error {
 	return nil
 }
 
-func main() {
-	loggerFactory := logger.NewLoggerFactory(logger.INFO)
-	startupLogger := loggerFactory.GetLogger("startup")
-
+func run() error {
 	err := godotenv.Load()
 	if err != nil {
-		startupLogger.Warn("Error loading .env file", map[string]interface{}{
-			"error": err.Error(),
-		})
+		log.Printf("Error loading .env file: %v", err)
 	}
 
-	cfg := config.Load(startupLogger)
+	cfg := config.Load()
 
 	err = cfg.Validate()
 	if err != nil {
-		startupLogger.Error("Invalid configuration", map[string]interface{}{
-			"error": err.Error(),
-		})
-		os.Exit(1)
+		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	loggerFactory = logger.NewLoggerFactory(logger.ParseLogLevel(cfg.LogLevel))
+	loggerFactory, err := logger.NewFactory(cfg.Logging)
+	if err != nil {
+		return fmt.Errorf("failed to create logger factory: %w", err)
+	}
+
+	defer func() {
+		cerr := loggerFactory.Close()
+		if cerr != nil {
+			log.Printf("Error closing logger factory: %v", cerr)
+		}
+	}()
 
 	bot, err := NewBot(cfg, loggerFactory)
 	if err != nil {
-		startupLogger.Error("Failed to initialize bot", map[string]interface{}{
-			"error": err.Error(),
-		})
-		os.Exit(1)
+		return fmt.Errorf("failed to initialize bot: %w", err)
 	}
 
 	err = bot.Start()
 	if err != nil {
-		bot.logger.Error("Failed to start bot", map[string]interface{}{
-			"error": err.Error(),
-		})
-		os.Exit(1)
+		return fmt.Errorf("failed to start bot: %w", err)
 	}
 
 	signal.Notify(bot.shutdownSignals, os.Interrupt, syscall.SIGTERM)
 	<-bot.shutdownSignals
 	bot.Shutdown()
+
+	return nil
+}
+
+func main() {
+	err := run()
+	if err != nil {
+		log.Printf("Error: %v", err)
+		os.Exit(1)
+	}
 }

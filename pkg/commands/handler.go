@@ -44,7 +44,7 @@ type CommandRegistry struct {
 	logger   *logger.Logger
 }
 
-func NewCommandRegistry(loggerFactory *logger.LoggerFactory) *CommandRegistry {
+func NewCommandRegistry(loggerFactory *logger.Factory) *CommandRegistry {
 	return &CommandRegistry{
 		commands: make([]Command, 0),
 		logger:   loggerFactory.GetLogger("command-registry"),
@@ -66,7 +66,7 @@ type CommandHandler struct {
 	timeTracker   *timing.Tracker
 }
 
-func NewCommandHandler(client *whatsmeow.Client, cfg *config.Config, registry *CommandRegistry, loggerFactory *logger.LoggerFactory) (*CommandHandler, error) {
+func NewCommandHandler(client *whatsmeow.Client, cfg *config.Config, registry *CommandRegistry, loggerFactory *logger.Factory) (*CommandHandler, error) {
 	cmdLogger := loggerFactory.GetLogger("command-handler")
 
 	limiter := ratelimit.NewLimiter(
