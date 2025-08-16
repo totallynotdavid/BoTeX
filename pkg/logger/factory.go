@@ -78,7 +78,7 @@ func (f *Factory) CreateWhatsmeowLogger(tag, level string) *WhatsmeowLogger {
 	return NewWhatsmeowLogger(logger, tag)
 }
 
-// Close releases any resources help by the factory.
+// Close releases any resources held by the factory.
 // It should be called when the pkg shuts down.
 func (f *Factory) Close() error {
 	if f.logFile != nil && f.logFile != os.Stdout {
