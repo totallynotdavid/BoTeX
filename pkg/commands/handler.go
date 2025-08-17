@@ -143,11 +143,14 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 
 	err := h.timeTracker.Track(ctx, "handle_message", timing.Basic, func(ctx context.Context) error {
 		// Build message context with unified permission checking
-		var msgContext *auth.MessageContext
-		var buildErr error
-		
+		var (
+			msgContext *auth.MessageContext
+			buildErr   error
+		)
+
 		trackSubOpErr := h.timeTracker.TrackSubOperation(ctx, "build_context", func(ctx context.Context) error {
 			msgContext, buildErr = h.contextBuilder.BuildContext(ctx, msg)
+
 			return nil
 		})
 		if trackSubOpErr != nil {
@@ -155,12 +158,13 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 				"error": trackSubOpErr.Error(),
 			})
 		}
-		
+
 		if buildErr != nil {
 			h.logger.Error("Failed to build message context", map[string]interface{}{
 				"sender": msg.Sender,
 				"error":  buildErr.Error(),
 			})
+
 			return fmt.Errorf("failed to build message context: %w", buildErr)
 		}
 
@@ -174,12 +178,12 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 		// Early return if permission denied - implement early return logic
 		if !msgContext.IsAllowed() {
 			h.logger.Info("Command permission denied - early return", map[string]interface{}{
-				"command":  msgContext.Command,
-				"sender":   msg.Sender,
-				"reason":   msgContext.GetPermissionReason(),
+				"command":   msgContext.Command,
+				"sender":    msg.Sender,
+				"reason":    msgContext.GetPermissionReason(),
 				"user_rank": msgContext.GetUserRank(),
 			})
-			
+
 			// Handle permission denied with user feedback
 			return h.handlePermissionDeniedFromContext(ctx, msgContext)
 		}
@@ -188,6 +192,7 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 
 		trackSubOpErr = h.timeTracker.TrackSubOperation(ctx, "check_rate_limit", func(ctx context.Context) error {
 			rateLimitErr = h.rateService.Check(ctx, msg)
+
 			return nil
 		})
 		if trackSubOpErr != nil {
@@ -198,6 +203,7 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 
 		if rateLimitErr != nil {
 			h.handleRateLimitError(ctx, msg, rateLimitErr)
+
 			return nil
 		}
 
@@ -208,6 +214,7 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 
 		trackSubOpErr = h.timeTracker.TrackSubOperation(ctx, "acquire_semaphore", func(ctx context.Context) error {
 			release, semErr = h.acquireSemaphore(ctx)
+
 			return nil
 		})
 		if trackSubOpErr != nil {
@@ -221,6 +228,7 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 				"sender": msg.Sender,
 				"error":  semErr.Error(),
 			})
+
 			return h.handleConcurrencyLimit(ctx, msg)
 		}
 
@@ -237,8 +245,6 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 		})
 	}
 }
-
-
 
 func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.Message, err error) {
 	var rateErr *ratelimit.RateLimitError
@@ -347,7 +353,6 @@ func (h *CommandHandler) executeCommandWithContext(ctx context.Context, msgConte
 	err := h.timeTracker.TrackCommand(ctx, msgContext.Command, func(ctx context.Context) error {
 		// Permission already checked in context building - no need to check again
 		// This implements the single permission check requirement
-		
 		err := cmd.Handle(ctx, msgContext.Message)
 		if err != nil {
 			h.logger.Error("Command execution failed", map[string]interface{}{
@@ -467,6 +472,7 @@ func (h *CommandHandler) createPermissionDeniedMessage(msgContext *auth.MessageC
 			if userRank != "" {
 				return fmt.Sprintf("You don't have sufficient permissions to use the '%s' command. Your rank: %s", cmdName, userRank)
 			}
+
 			return fmt.Sprintf("You don't have sufficient permissions to use the '%s' command.", cmdName)
 		} else if strings.Contains(reason, "admin required") || strings.Contains(reason, "whatsapp admin") {
 			return fmt.Sprintf("The '%s' command requires WhatsApp admin privileges in this group.", cmdName)

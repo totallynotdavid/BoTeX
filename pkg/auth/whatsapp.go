@@ -2,14 +2,15 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
 
-// parseJID parses a user or group ID into a proper WhatsApp JID format
+// parseJID parses a user or group ID into a proper WhatsApp JID format.
 func parseJID(id string) (string, error) {
 	if id == "" {
-		return "", fmt.Errorf("ID cannot be empty")
+		return "", errors.New("ID cannot be empty")
 	}
 
 	// If it already looks like a JID, return as-is
@@ -26,13 +27,13 @@ func parseJID(id string) (string, error) {
 	return id + "@s.whatsapp.net", nil
 }
 
-// MockWhatsAppClient is a mock implementation for testing
+// MockWhatsAppClient is a mock implementation for testing.
 type MockWhatsAppClient struct {
 	connected bool
 	admins    map[string][]string // groupID -> []userID
 }
 
-// NewMockWhatsAppClient creates a new mock WhatsApp client
+// NewMockWhatsAppClient creates a new mock WhatsApp client.
 func NewMockWhatsAppClient(connected bool) *MockWhatsAppClient {
 	return &MockWhatsAppClient{
 		connected: connected,
@@ -40,15 +41,15 @@ func NewMockWhatsAppClient(connected bool) *MockWhatsAppClient {
 	}
 }
 
-// IsConnected returns whether the mock client is connected
+// IsConnected returns whether the mock client is connected.
 func (m *MockWhatsAppClient) IsConnected() bool {
 	return m.connected
 }
 
-// IsGroupAdmin checks if a user is an admin in a group (mock implementation)
+// IsGroupAdmin checks if a user is an admin in a group (mock implementation).
 func (m *MockWhatsAppClient) IsGroupAdmin(ctx context.Context, userJID, groupJID string) (bool, error) {
 	if !m.connected {
-		return false, fmt.Errorf("client not connected")
+		return false, errors.New("client not connected")
 	}
 
 	// Parse JIDs to ensure proper format
@@ -74,7 +75,7 @@ func (m *MockWhatsAppClient) IsGroupAdmin(ctx context.Context, userJID, groupJID
 	return false, nil
 }
 
-// SetGroupAdmin sets a user as admin in a group (for testing)
+// SetGroupAdmin sets a user as admin in a group (for testing).
 func (m *MockWhatsAppClient) SetGroupAdmin(groupJID, userJID string, isAdmin bool) error {
 	parsedUserJID, err := parseJID(userJID)
 	if err != nil {
@@ -97,22 +98,25 @@ func (m *MockWhatsAppClient) SetGroupAdmin(groupJID, userJID string, isAdmin boo
 				return nil // Already admin
 			}
 		}
+
 		m.admins[parsedGroupJID] = append(m.admins[parsedGroupJID], parsedUserJID)
 	} else {
 		// Remove admin
 		var newAdmins []string
+
 		for _, adminJID := range m.admins[parsedGroupJID] {
 			if adminJID != parsedUserJID {
 				newAdmins = append(newAdmins, adminJID)
 			}
 		}
+
 		m.admins[parsedGroupJID] = newAdmins
 	}
 
 	return nil
 }
 
-// SetConnected sets the connection status (for testing)
+// SetConnected sets the connection status (for testing).
 func (m *MockWhatsAppClient) SetConnected(connected bool) {
 	m.connected = connected
 }

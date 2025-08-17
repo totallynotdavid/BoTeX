@@ -10,7 +10,7 @@ import (
 	"botex/pkg/logger"
 )
 
-// SQLiteAuthStore implements the unified AuthStore interface using SQLite database
+// SQLiteAuthStore implements the unified AuthStore interface using SQLite database.
 type SQLiteAuthStore struct {
 	db             *sql.DB
 	logger         *logger.Logger
@@ -18,16 +18,16 @@ type SQLiteAuthStore struct {
 	closed         bool
 }
 
-// WhatsAppClient interface for WhatsApp admin verification
+// WhatsAppClient interface for WhatsApp admin verification.
 type WhatsAppClient interface {
 	IsConnected() bool
 	IsGroupAdmin(ctx context.Context, userJID, groupJID string) (bool, error)
 }
 
-// NewSQLiteAuthStore creates a new SQLite-based unified auth store
+// NewSQLiteAuthStore creates a new SQLite-based unified auth store.
 func NewSQLiteAuthStore(db *sql.DB, loggerFactory *logger.Factory, whatsappClient WhatsAppClient) (*SQLiteAuthStore, error) {
 	if db == nil {
-		return nil, NewAuthError("store_init", fmt.Errorf("database connection cannot be nil"))
+		return nil, NewAuthError("store_init", errors.New("database connection cannot be nil"))
 	}
 
 	storeLogger := loggerFactory.GetLogger("auth-store")
@@ -46,10 +46,11 @@ func NewSQLiteAuthStore(db *sql.DB, loggerFactory *logger.Factory, whatsappClien
 	}
 
 	storeLogger.Info("Unified auth store initialized successfully", nil)
+
 	return store, nil
 }
 
-// GetUser retrieves a user by ID from the unified users table
+// GetUser retrieves a user by ID from the unified users table.
 func (s *SQLiteAuthStore) GetUser(ctx context.Context, userID string) (*User, error) {
 	if s.closed {
 		return nil, NewUserAuthError("get_user", userID, ErrServiceClosed)
@@ -69,8 +70,10 @@ func (s *SQLiteAuthStore) GetUser(ctx context.Context, userID string) (*User, er
 		WHERE user_id = ? AND active = TRUE
 	`
 
-	var user User
-	var registeredBy sql.NullString
+	var (
+		user         User
+		registeredBy sql.NullString
+	)
 
 	err := s.db.QueryRowContext(ctx, query, userID).Scan(
 		&user.UserID,
@@ -80,7 +83,7 @@ func (s *SQLiteAuthStore) GetUser(ctx context.Context, userID string) (*User, er
 		&user.Active,
 	)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, NewUserAuthError("get_user", userID, ErrUserNotFound)
 	}
 
@@ -89,7 +92,8 @@ func (s *SQLiteAuthStore) GetUser(ctx context.Context, userID string) (*User, er
 			"user_id": userID,
 			"error":   err.Error(),
 		})
-		return nil, NewUserAuthError("get_user", userID, fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return nil, NewUserAuthError("get_user", userID, fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	if registeredBy.Valid {
@@ -104,14 +108,14 @@ func (s *SQLiteAuthStore) GetUser(ctx context.Context, userID string) (*User, er
 	return &user, nil
 }
 
-// CreateUser creates a new user in the unified users table
+// CreateUser creates a new user in the unified users table.
 func (s *SQLiteAuthStore) CreateUser(ctx context.Context, user *User) error {
 	if s.closed {
 		return NewUserAuthError("create_user", user.UserID, ErrServiceClosed)
 	}
 
 	if user == nil {
-		return NewAuthError("create_user", fmt.Errorf("user cannot be nil"))
+		return NewAuthError("create_user", errors.New("user cannot be nil"))
 	}
 
 	if user.UserID == "" {
@@ -164,14 +168,14 @@ func (s *SQLiteAuthStore) CreateUser(ctx context.Context, user *User) error {
 		user.RegisteredBy,
 		user.Active,
 	)
-
 	if err != nil {
 		s.logger.Error("Failed to create user", map[string]interface{}{
 			"user_id": user.UserID,
 			"rank":    user.Rank,
 			"error":   err.Error(),
 		})
-		return NewUserAuthError("create_user", user.UserID, fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return NewUserAuthError("create_user", user.UserID, fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	s.logger.Info("User created successfully", map[string]interface{}{
@@ -182,14 +186,14 @@ func (s *SQLiteAuthStore) CreateUser(ctx context.Context, user *User) error {
 	return nil
 }
 
-// UpdateUser updates an existing user's information
+// UpdateUser updates an existing user's information.
 func (s *SQLiteAuthStore) UpdateUser(ctx context.Context, user *User) error {
 	if s.closed {
 		return NewUserAuthError("update_user", user.UserID, ErrServiceClosed)
 	}
 
 	if user == nil {
-		return NewAuthError("update_user", fmt.Errorf("user cannot be nil"))
+		return NewAuthError("update_user", errors.New("user cannot be nil"))
 	}
 
 	if user.UserID == "" {
@@ -227,14 +231,14 @@ func (s *SQLiteAuthStore) UpdateUser(ctx context.Context, user *User) error {
 		user.Active,
 		user.UserID,
 	)
-
 	if err != nil {
 		s.logger.Error("Failed to update user", map[string]interface{}{
 			"user_id": user.UserID,
 			"rank":    user.Rank,
 			"error":   err.Error(),
 		})
-		return NewUserAuthError("update_user", user.UserID, fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return NewUserAuthError("update_user", user.UserID, fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	rowsAffected, err := result.RowsAffected()
@@ -243,7 +247,8 @@ func (s *SQLiteAuthStore) UpdateUser(ctx context.Context, user *User) error {
 			"user_id": user.UserID,
 			"error":   err.Error(),
 		})
-		return NewUserAuthError("update_user", user.UserID, fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return NewUserAuthError("update_user", user.UserID, fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	if rowsAffected == 0 {
@@ -258,7 +263,7 @@ func (s *SQLiteAuthStore) UpdateUser(ctx context.Context, user *User) error {
 	return nil
 }
 
-// DeleteUser soft-deletes a user by setting active to false
+// DeleteUser soft-deletes a user by setting active to false.
 func (s *SQLiteAuthStore) DeleteUser(ctx context.Context, userID string) error {
 	if s.closed {
 		return NewUserAuthError("delete_user", userID, ErrServiceClosed)
@@ -286,7 +291,8 @@ func (s *SQLiteAuthStore) DeleteUser(ctx context.Context, userID string) error {
 			"user_id": userID,
 			"error":   err.Error(),
 		})
-		return NewUserAuthError("delete_user", userID, fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return NewUserAuthError("delete_user", userID, fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	rowsAffected, err := result.RowsAffected()
@@ -295,7 +301,8 @@ func (s *SQLiteAuthStore) DeleteUser(ctx context.Context, userID string) error {
 			"user_id": userID,
 			"error":   err.Error(),
 		})
-		return NewUserAuthError("delete_user", userID, fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return NewUserAuthError("delete_user", userID, fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	if rowsAffected == 0 {
@@ -309,14 +316,14 @@ func (s *SQLiteAuthStore) DeleteUser(ctx context.Context, userID string) error {
 	return nil
 }
 
-// GetRank retrieves a rank by name
+// GetRank retrieves a rank by name.
 func (s *SQLiteAuthStore) GetRank(ctx context.Context, rankName string) (*Rank, error) {
 	if s.closed {
 		return nil, NewAuthError("get_rank", fmt.Errorf("%w", ErrServiceClosed))
 	}
 
 	if rankName == "" {
-		return nil, NewAuthError("get_rank", fmt.Errorf("rank name cannot be empty"))
+		return nil, NewAuthError("get_rank", errors.New("rank name cannot be empty"))
 	}
 
 	s.logger.Debug("Getting rank", map[string]interface{}{
@@ -340,7 +347,7 @@ func (s *SQLiteAuthStore) GetRank(ctx context.Context, rankName string) (*Rank, 
 		&rank.Active,
 	)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, NewAuthError("get_rank", fmt.Errorf("%w: rank %s", ErrRankNotFound, rankName))
 	}
 
@@ -349,7 +356,8 @@ func (s *SQLiteAuthStore) GetRank(ctx context.Context, rankName string) (*Rank, 
 			"rank_name": rankName,
 			"error":     err.Error(),
 		})
-		return nil, NewAuthError("get_rank", fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return nil, NewAuthError("get_rank", fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	// Unmarshal commands from JSON
@@ -359,6 +367,7 @@ func (s *SQLiteAuthStore) GetRank(ctx context.Context, rankName string) (*Rank, 
 			"rank_name": rankName,
 			"error":     err.Error(),
 		})
+
 		return nil, NewAuthError("get_rank", fmt.Errorf("failed to parse rank commands: %w", err))
 	}
 
@@ -370,18 +379,18 @@ func (s *SQLiteAuthStore) GetRank(ctx context.Context, rankName string) (*Rank, 
 	return &rank, nil
 }
 
-// CreateRank creates a new rank
+// CreateRank creates a new rank.
 func (s *SQLiteAuthStore) CreateRank(ctx context.Context, rank *Rank) error {
 	if s.closed {
 		return NewAuthError("create_rank", fmt.Errorf("%w", ErrServiceClosed))
 	}
 
 	if rank == nil {
-		return NewAuthError("create_rank", fmt.Errorf("rank cannot be nil"))
+		return NewAuthError("create_rank", errors.New("rank cannot be nil"))
 	}
 
 	if rank.Name == "" {
-		return NewAuthError("create_rank", fmt.Errorf("rank name cannot be empty"))
+		return NewAuthError("create_rank", errors.New("rank name cannot be empty"))
 	}
 
 	s.logger.Debug("Creating rank", map[string]interface{}{
@@ -427,13 +436,13 @@ func (s *SQLiteAuthStore) CreateRank(ctx context.Context, rank *Rank) error {
 		rank.CreatedAt,
 		rank.Active,
 	)
-
 	if err != nil {
 		s.logger.Error("Failed to create rank", map[string]interface{}{
 			"rank_name": rank.Name,
 			"error":     err.Error(),
 		})
-		return NewAuthError("create_rank", fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return NewAuthError("create_rank", fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	s.logger.Info("Rank created successfully", map[string]interface{}{
@@ -444,18 +453,18 @@ func (s *SQLiteAuthStore) CreateRank(ctx context.Context, rank *Rank) error {
 	return nil
 }
 
-// UpdateRank updates an existing rank
+// UpdateRank updates an existing rank.
 func (s *SQLiteAuthStore) UpdateRank(ctx context.Context, rank *Rank) error {
 	if s.closed {
 		return NewAuthError("update_rank", fmt.Errorf("%w", ErrServiceClosed))
 	}
 
 	if rank == nil {
-		return NewAuthError("update_rank", fmt.Errorf("rank cannot be nil"))
+		return NewAuthError("update_rank", errors.New("rank cannot be nil"))
 	}
 
 	if rank.Name == "" {
-		return NewAuthError("update_rank", fmt.Errorf("rank name cannot be empty"))
+		return NewAuthError("update_rank", errors.New("rank name cannot be empty"))
 	}
 
 	s.logger.Debug("Updating rank", map[string]interface{}{
@@ -488,13 +497,13 @@ func (s *SQLiteAuthStore) UpdateRank(ctx context.Context, rank *Rank) error {
 		rank.Active,
 		rank.Name,
 	)
-
 	if err != nil {
 		s.logger.Error("Failed to update rank", map[string]interface{}{
 			"rank_name": rank.Name,
 			"error":     err.Error(),
 		})
-		return NewAuthError("update_rank", fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return NewAuthError("update_rank", fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	rowsAffected, err := result.RowsAffected()
@@ -503,7 +512,8 @@ func (s *SQLiteAuthStore) UpdateRank(ctx context.Context, rank *Rank) error {
 			"rank_name": rank.Name,
 			"error":     err.Error(),
 		})
-		return NewAuthError("update_rank", fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return NewAuthError("update_rank", fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	if rowsAffected == 0 {
@@ -518,7 +528,7 @@ func (s *SQLiteAuthStore) UpdateRank(ctx context.Context, rank *Rank) error {
 	return nil
 }
 
-// ListRanks retrieves all active ranks
+// ListRanks retrieves all active ranks.
 func (s *SQLiteAuthStore) ListRanks(ctx context.Context) ([]*Rank, error) {
 	if s.closed {
 		return nil, NewAuthError("list_ranks", fmt.Errorf("%w", ErrServiceClosed))
@@ -538,13 +548,15 @@ func (s *SQLiteAuthStore) ListRanks(ctx context.Context) ([]*Rank, error) {
 		s.logger.Error("Failed to list ranks", map[string]interface{}{
 			"error": err.Error(),
 		})
-		return nil, NewAuthError("list_ranks", fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return nil, NewAuthError("list_ranks", fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 	defer rows.Close()
 
 	var ranks []*Rank
 	for rows.Next() {
 		var rank Rank
+
 		err = rows.Scan(
 			&rank.Name,
 			&rank.Level,
@@ -557,7 +569,8 @@ func (s *SQLiteAuthStore) ListRanks(ctx context.Context) ([]*Rank, error) {
 			s.logger.Error("Failed to scan rank", map[string]interface{}{
 				"error": err.Error(),
 			})
-			return nil, NewAuthError("list_ranks", fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+			return nil, NewAuthError("list_ranks", fmt.Errorf("%w: %w", ErrDatabaseError, err))
 		}
 
 		// Unmarshal commands from JSON
@@ -567,6 +580,7 @@ func (s *SQLiteAuthStore) ListRanks(ctx context.Context) ([]*Rank, error) {
 				"rank_name": rank.Name,
 				"error":     err.Error(),
 			})
+
 			return nil, NewAuthError("list_ranks", fmt.Errorf("failed to parse rank commands for %s: %w", rank.Name, err))
 		}
 
@@ -577,7 +591,8 @@ func (s *SQLiteAuthStore) ListRanks(ctx context.Context) ([]*Rank, error) {
 		s.logger.Error("Error iterating ranks", map[string]interface{}{
 			"error": err.Error(),
 		})
-		return nil, NewAuthError("list_ranks", fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return nil, NewAuthError("list_ranks", fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	s.logger.Debug("Ranks listed successfully", map[string]interface{}{
@@ -587,14 +602,14 @@ func (s *SQLiteAuthStore) ListRanks(ctx context.Context) ([]*Rank, error) {
 	return ranks, nil
 }
 
-// CountUsersWithRank counts the number of active users assigned to a specific rank
+// CountUsersWithRank counts the number of active users assigned to a specific rank.
 func (s *SQLiteAuthStore) CountUsersWithRank(ctx context.Context, rankName string) (int, error) {
 	if s.closed {
 		return 0, NewAuthError("count_users_with_rank", fmt.Errorf("%w", ErrServiceClosed))
 	}
 
 	if rankName == "" {
-		return 0, NewAuthError("count_users_with_rank", fmt.Errorf("rank name cannot be empty"))
+		return 0, NewAuthError("count_users_with_rank", errors.New("rank name cannot be empty"))
 	}
 
 	s.logger.Debug("Counting users with rank", map[string]interface{}{
@@ -604,13 +619,15 @@ func (s *SQLiteAuthStore) CountUsersWithRank(ctx context.Context, rankName strin
 	query := `SELECT COUNT(*) FROM users WHERE rank = ? AND active = TRUE`
 
 	var count int
+
 	err := s.db.QueryRowContext(ctx, query, rankName).Scan(&count)
 	if err != nil {
 		s.logger.Error("Failed to count users with rank", map[string]interface{}{
 			"rank_name": rankName,
 			"error":     err.Error(),
 		})
-		return 0, NewAuthError("count_users_with_rank", fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return 0, NewAuthError("count_users_with_rank", fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	s.logger.Debug("Users with rank counted", map[string]interface{}{
@@ -621,7 +638,7 @@ func (s *SQLiteAuthStore) CountUsersWithRank(ctx context.Context, rankName strin
 	return count, nil
 }
 
-// GetGroup retrieves a registered group by ID
+// GetGroup retrieves a registered group by ID.
 func (s *SQLiteAuthStore) GetGroup(ctx context.Context, groupID string) (*RegisteredGroup, error) {
 	if s.closed {
 		return nil, NewGroupAuthError("get_group", groupID, ErrServiceClosed)
@@ -650,7 +667,7 @@ func (s *SQLiteAuthStore) GetGroup(ctx context.Context, groupID string) (*Regist
 		&group.Active,
 	)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, NewGroupAuthError("get_group", groupID, ErrGroupNotRegistered)
 	}
 
@@ -659,7 +676,8 @@ func (s *SQLiteAuthStore) GetGroup(ctx context.Context, groupID string) (*Regist
 			"group_id": groupID,
 			"error":    err.Error(),
 		})
-		return nil, NewGroupAuthError("get_group", groupID, fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return nil, NewGroupAuthError("get_group", groupID, fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	s.logger.Debug("Group retrieved successfully", map[string]interface{}{
@@ -669,14 +687,14 @@ func (s *SQLiteAuthStore) GetGroup(ctx context.Context, groupID string) (*Regist
 	return &group, nil
 }
 
-// CreateGroup creates a new registered group
+// CreateGroup creates a new registered group.
 func (s *SQLiteAuthStore) CreateGroup(ctx context.Context, group *RegisteredGroup) error {
 	if s.closed {
 		return NewGroupAuthError("create_group", group.GroupID, ErrServiceClosed)
 	}
 
 	if group == nil {
-		return NewAuthError("create_group", fmt.Errorf("group cannot be nil"))
+		return NewAuthError("create_group", errors.New("group cannot be nil"))
 	}
 
 	if group.GroupID == "" {
@@ -684,7 +702,7 @@ func (s *SQLiteAuthStore) CreateGroup(ctx context.Context, group *RegisteredGrou
 	}
 
 	if group.RegisteredBy == "" {
-		return NewGroupAuthError("create_group", group.GroupID, fmt.Errorf("registered_by cannot be empty"))
+		return NewGroupAuthError("create_group", group.GroupID, errors.New("registered_by cannot be empty"))
 	}
 
 	s.logger.Debug("Creating group", map[string]interface{}{
@@ -694,10 +712,10 @@ func (s *SQLiteAuthStore) CreateGroup(ctx context.Context, group *RegisteredGrou
 
 	// Check if group already exists
 	existingGroup, err := s.GetGroup(ctx, group.GroupID)
-	if err != nil && err != ErrGroupNotRegistered {
+	if err != nil && !errors.Is(err, ErrGroupNotRegistered) {
 		// If it's not a "not found" error, it's a real database error
 		var authErr *AuthError
-		if errors.As(err, &authErr) && authErr.Err != ErrGroupNotRegistered {
+		if errors.As(err, &authErr) && !errors.Is(authErr.Err, ErrGroupNotRegistered) {
 			return err
 		}
 	}
@@ -714,6 +732,7 @@ func (s *SQLiteAuthStore) CreateGroup(ctx context.Context, group *RegisteredGrou
 			"registered_by": group.RegisteredBy,
 			"error":         err.Error(),
 		})
+
 		return NewGroupAuthError("create_group", group.GroupID, fmt.Errorf("registering user must be registered: %w", err))
 	}
 
@@ -729,7 +748,8 @@ func (s *SQLiteAuthStore) CreateGroup(ctx context.Context, group *RegisteredGrou
 			"group_id": group.GroupID,
 			"error":    err.Error(),
 		})
-		return NewGroupAuthError("create_group", group.GroupID, fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return NewGroupAuthError("create_group", group.GroupID, fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 	defer tx.Rollback()
 
@@ -744,14 +764,14 @@ func (s *SQLiteAuthStore) CreateGroup(ctx context.Context, group *RegisteredGrou
 		group.RegisteredBy,
 		group.Active,
 	)
-
 	if err != nil {
 		s.logger.Error("Failed to create group", map[string]interface{}{
 			"group_id":      group.GroupID,
 			"registered_by": group.RegisteredBy,
 			"error":         err.Error(),
 		})
-		return NewGroupAuthError("create_group", group.GroupID, fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return NewGroupAuthError("create_group", group.GroupID, fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	err = tx.Commit()
@@ -760,7 +780,8 @@ func (s *SQLiteAuthStore) CreateGroup(ctx context.Context, group *RegisteredGrou
 			"group_id": group.GroupID,
 			"error":    err.Error(),
 		})
-		return NewGroupAuthError("create_group", group.GroupID, fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return NewGroupAuthError("create_group", group.GroupID, fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	s.logger.Info("Group created successfully", map[string]interface{}{
@@ -771,7 +792,7 @@ func (s *SQLiteAuthStore) CreateGroup(ctx context.Context, group *RegisteredGrou
 	return nil
 }
 
-// DeleteGroup soft-deletes a registered group by setting active to false
+// DeleteGroup soft-deletes a registered group by setting active to false.
 func (s *SQLiteAuthStore) DeleteGroup(ctx context.Context, groupID string) error {
 	if s.closed {
 		return NewGroupAuthError("delete_group", groupID, ErrServiceClosed)
@@ -799,7 +820,8 @@ func (s *SQLiteAuthStore) DeleteGroup(ctx context.Context, groupID string) error
 			"group_id": groupID,
 			"error":    err.Error(),
 		})
-		return NewGroupAuthError("delete_group", groupID, fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return NewGroupAuthError("delete_group", groupID, fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	rowsAffected, err := result.RowsAffected()
@@ -808,7 +830,8 @@ func (s *SQLiteAuthStore) DeleteGroup(ctx context.Context, groupID string) error
 			"group_id": groupID,
 			"error":    err.Error(),
 		})
-		return NewGroupAuthError("delete_group", groupID, fmt.Errorf("%w: %v", ErrDatabaseError, err))
+
+		return NewGroupAuthError("delete_group", groupID, fmt.Errorf("%w: %w", ErrDatabaseError, err))
 	}
 
 	if rowsAffected == 0 {
@@ -822,18 +845,18 @@ func (s *SQLiteAuthStore) DeleteGroup(ctx context.Context, groupID string) error
 	return nil
 }
 
-// IsWhatsAppAdmin checks if a user is a WhatsApp group admin
+// IsWhatsAppAdmin checks if a user is a WhatsApp group admin.
 func (s *SQLiteAuthStore) IsWhatsAppAdmin(ctx context.Context, userID, groupID string) (bool, error) {
 	if s.closed {
 		return false, NewUserAuthError("is_whatsapp_admin", userID, ErrServiceClosed)
 	}
 
 	if userID == "" {
-		return false, NewUserAuthError("is_whatsapp_admin", userID, fmt.Errorf("user ID cannot be empty"))
+		return false, NewUserAuthError("is_whatsapp_admin", userID, errors.New("user ID cannot be empty"))
 	}
 
 	if groupID == "" {
-		return false, NewUserAuthError("is_whatsapp_admin", userID, fmt.Errorf("group ID cannot be empty"))
+		return false, NewUserAuthError("is_whatsapp_admin", userID, errors.New("group ID cannot be empty"))
 	}
 
 	s.logger.Debug("Checking WhatsApp admin status", map[string]interface{}{
@@ -847,7 +870,8 @@ func (s *SQLiteAuthStore) IsWhatsAppAdmin(ctx context.Context, userID, groupID s
 			"user_id":  userID,
 			"group_id": groupID,
 		})
-		return false, NewUserAuthError("is_whatsapp_admin", userID, fmt.Errorf("WhatsApp client not available"))
+
+		return false, NewUserAuthError("is_whatsapp_admin", userID, errors.New("WhatsApp client not available"))
 	}
 
 	// Check if the client is connected
@@ -856,7 +880,8 @@ func (s *SQLiteAuthStore) IsWhatsAppAdmin(ctx context.Context, userID, groupID s
 			"user_id":  userID,
 			"group_id": groupID,
 		})
-		return false, NewUserAuthError("is_whatsapp_admin", userID, fmt.Errorf("WhatsApp client not connected"))
+
+		return false, NewUserAuthError("is_whatsapp_admin", userID, errors.New("WhatsApp client not connected"))
 	}
 
 	// Use the WhatsApp client to check admin status
@@ -867,6 +892,7 @@ func (s *SQLiteAuthStore) IsWhatsAppAdmin(ctx context.Context, userID, groupID s
 			"group_id": groupID,
 			"error":    err.Error(),
 		})
+
 		return false, NewUserAuthError("is_whatsapp_admin", userID, fmt.Errorf("failed to verify admin status: %w", err))
 	}
 
@@ -879,15 +905,16 @@ func (s *SQLiteAuthStore) IsWhatsAppAdmin(ctx context.Context, userID, groupID s
 	return isAdmin, nil
 }
 
-// Close closes the auth store and releases resources
+// Close closes the auth store and releases resources.
 func (s *SQLiteAuthStore) Close() error {
 	s.logger.Debug("Closing auth store", nil)
 	s.closed = true
 	s.logger.Info("Auth store closed", nil)
+
 	return nil
 }
 
-// validateSchema ensures that the required database tables exist
+// validateSchema ensures that the required database tables exist.
 func (s *SQLiteAuthStore) validateSchema(ctx context.Context) error {
 	// Check if users table exists (unified table)
 	err := s.validateTable(ctx, "users", []string{
@@ -916,21 +943,24 @@ func (s *SQLiteAuthStore) validateSchema(ctx context.Context) error {
 	return nil
 }
 
-// validateTable checks if a table exists and has the expected columns
+// validateTable checks if a table exists and has the expected columns.
 func (s *SQLiteAuthStore) validateTable(ctx context.Context, tableName string, expectedColumns []string) error {
 	query := `SELECT name FROM sqlite_master WHERE type='table' AND name=?`
 
 	var name string
+
 	err := s.db.QueryRowContext(ctx, query, tableName).Scan(&name)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("table %s does not exist", tableName)
 	}
+
 	if err != nil {
 		return err
 	}
 
 	// Check columns
 	pragmaQuery := fmt.Sprintf("PRAGMA table_info(%s)", tableName)
+
 	rows, err := s.db.QueryContext(ctx, pragmaQuery)
 	if err != nil {
 		return err
@@ -938,28 +968,35 @@ func (s *SQLiteAuthStore) validateTable(ctx context.Context, tableName string, e
 	defer rows.Close()
 
 	var actualColumns []string
+
 	for rows.Next() {
-		var cid int
-		var name, dataType string
-		var notNull, pk int
-		var defaultValue sql.NullString
+		var (
+			cid            int
+			name, dataType string
+			notNull, pk    int
+			defaultValue   sql.NullString
+		)
 
 		err = rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk)
 		if err != nil {
 			return err
 		}
+
 		actualColumns = append(actualColumns, name)
 	}
 
 	// Verify all expected columns exist
 	for _, expected := range expectedColumns {
 		found := false
+
 		for _, actual := range actualColumns {
 			if actual == expected {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			return fmt.Errorf("column %s not found in table %s", expected, tableName)
 		}

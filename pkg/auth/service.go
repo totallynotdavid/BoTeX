@@ -10,21 +10,21 @@ import (
 	"botex/pkg/logger"
 )
 
-// UnifiedAuthService implements the unified AuthService interface
+// UnifiedAuthService implements the unified AuthService interface.
 type UnifiedAuthService struct {
 	store  AuthStore
 	logger *logger.Logger
 	closed bool
 }
 
-// NewUnifiedAuthService creates a new unified auth service instance
+// NewUnifiedAuthService creates a new unified auth service instance.
 func NewUnifiedAuthService(store AuthStore, loggerFactory *logger.Factory) (*UnifiedAuthService, error) {
 	if store == nil {
-		return nil, NewAuthError("service_init", fmt.Errorf("auth store cannot be nil"))
+		return nil, NewAuthError("service_init", errors.New("auth store cannot be nil"))
 	}
 
 	if loggerFactory == nil {
-		return nil, NewAuthError("service_init", fmt.Errorf("logger factory cannot be nil"))
+		return nil, NewAuthError("service_init", errors.New("logger factory cannot be nil"))
 	}
 
 	serviceLogger := loggerFactory.GetLogger("unified-auth-service")
@@ -36,25 +36,27 @@ func NewUnifiedAuthService(store AuthStore, loggerFactory *logger.Factory) (*Uni
 	}
 
 	serviceLogger.Info("Unified auth service initialized successfully", nil)
+
 	return service, nil
 }
 
-// CheckPermission is the primary method for unified permission checking with early return
+// CheckPermission is the primary method for unified permission checking with early return.
 func (s *UnifiedAuthService) CheckPermission(ctx context.Context, userID, groupID, command string) (*PermissionResult, error) {
 	// Initialize performance metrics
 	metrics := NewPerformanceMetrics("check_permission", userID, groupID, command)
-	
+
 	// Log concurrent operation safety - this operation is concurrent-safe
 	s.logConcurrentOperationSafety("check_permission", true, map[string]interface{}{
 		"user_id":  userID,
 		"group_id": groupID,
 		"command":  command,
 	})
-	
+
 	if s.closed {
 		err := NewUserGroupAuthError("check_permission", userID, groupID, ErrServiceClosed)
 		metrics.Complete(false, err.Error())
 		s.logOperationError("check_permission", metrics, err, nil)
+
 		return nil, err
 	}
 
@@ -62,13 +64,15 @@ func (s *UnifiedAuthService) CheckPermission(ctx context.Context, userID, groupI
 		err := NewUserGroupAuthError("check_permission", userID, groupID, ErrInvalidUserID)
 		metrics.Complete(false, err.Error())
 		s.logOperationError("check_permission", metrics, err, nil)
+
 		return nil, err
 	}
 
 	if command == "" {
-		err := NewUserGroupAuthError("check_permission", userID, groupID, fmt.Errorf("command cannot be empty"))
+		err := NewUserGroupAuthError("check_permission", userID, groupID, errors.New("command cannot be empty"))
 		metrics.Complete(false, err.Error())
 		s.logOperationError("check_permission", metrics, err, nil)
+
 		return nil, err
 	}
 
@@ -96,17 +100,20 @@ func (s *UnifiedAuthService) CheckPermission(ctx context.Context, userID, groupI
 			s.logOperationError("check_permission", metrics, err, map[string]interface{}{
 				"step": "group_registration_check",
 			})
+
 			return nil, err
 		}
 
 		if !isGroupRegistered {
 			result.Reason = "Group not registered"
+
 			metrics.Complete(true, "")
 			s.logOperationSuccess("check_permission", metrics, map[string]interface{}{
-				"result":  "denied",
-				"reason":  result.Reason,
-				"step":    "group_registration_check",
+				"result": "denied",
+				"reason": result.Reason,
+				"step":   "group_registration_check",
 			})
+
 			return result, nil
 		}
 	}
@@ -122,12 +129,14 @@ func (s *UnifiedAuthService) CheckPermission(ctx context.Context, userID, groupI
 			} else {
 				result.Reason = "User not registered"
 			}
+
 			metrics.Complete(true, "")
 			s.logOperationSuccess("check_permission", metrics, map[string]interface{}{
 				"result": "denied",
 				"reason": result.Reason,
 				"step":   "user_lookup",
 			})
+
 			return result, nil
 		}
 		// Other database errors
@@ -135,6 +144,7 @@ func (s *UnifiedAuthService) CheckPermission(ctx context.Context, userID, groupI
 		s.logOperationError("check_permission", metrics, err, map[string]interface{}{
 			"step": "user_lookup",
 		})
+
 		return nil, err
 	}
 
@@ -144,17 +154,20 @@ func (s *UnifiedAuthService) CheckPermission(ctx context.Context, userID, groupI
 	rank, err := s.store.GetRank(ctx, user.Rank)
 	if err != nil {
 		result.Reason = "Unable to determine user permissions"
+
 		metrics.Complete(false, err.Error())
 		s.logOperationError("check_permission", metrics, err, map[string]interface{}{
 			"step":      "rank_lookup",
 			"user_rank": user.Rank,
 		})
+
 		return result, nil
 	}
 
 	// Check if user's rank has permission for this command
 	if !rank.HasCommand(command) {
 		result.Reason = fmt.Sprintf("Command '%s' not allowed for rank '%s'", command, user.Rank)
+
 		metrics.Complete(true, "")
 		s.logOperationSuccess("check_permission", metrics, map[string]interface{}{
 			"result":    "denied",
@@ -162,6 +175,7 @@ func (s *UnifiedAuthService) CheckPermission(ctx context.Context, userID, groupI
 			"step":      "command_permission_check",
 			"user_rank": user.Rank,
 		})
+
 		return result, nil
 	}
 
@@ -196,7 +210,7 @@ func (s *UnifiedAuthService) CheckPermission(ctx context.Context, userID, groupI
 	return result, nil
 }
 
-// IsUserRegistered checks if a user is registered in the system
+// IsUserRegistered checks if a user is registered in the system.
 func (s *UnifiedAuthService) IsUserRegistered(ctx context.Context, userID string) (bool, error) {
 	if s.closed {
 		return false, NewUserAuthError("is_user_registered", userID, ErrServiceClosed)
@@ -217,6 +231,7 @@ func (s *UnifiedAuthService) IsUserRegistered(ctx context.Context, userID string
 			s.logger.Debug("User not registered", map[string]interface{}{
 				"user_id": userID,
 			})
+
 			return false, nil
 		}
 		// Return other errors as-is
@@ -226,24 +241,26 @@ func (s *UnifiedAuthService) IsUserRegistered(ctx context.Context, userID string
 	s.logger.Debug("User is registered", map[string]interface{}{
 		"user_id": userID,
 	})
+
 	return true, nil
 }
 
-// RegisterUser registers a new user in the system with specified rank
+// RegisterUser registers a new user in the system with specified rank.
 func (s *UnifiedAuthService) RegisterUser(ctx context.Context, userID, rank string) error {
 	// Initialize performance metrics
 	metrics := NewPerformanceMetrics("register_user", userID, "", "")
-	
+
 	// Log concurrent operation safety - this operation is concurrent-safe
 	s.logConcurrentOperationSafety("register_user", true, map[string]interface{}{
 		"user_id": userID,
 		"rank":    rank,
 	})
-	
+
 	if s.closed {
 		err := NewUserAuthError("register_user", userID, ErrServiceClosed)
 		metrics.Complete(false, err.Error())
 		s.logOperationError("register_user", metrics, err, nil)
+
 		return err
 	}
 
@@ -251,6 +268,7 @@ func (s *UnifiedAuthService) RegisterUser(ctx context.Context, userID, rank stri
 		err := NewUserAuthError("register_user", userID, ErrInvalidUserID)
 		metrics.Complete(false, err.Error())
 		s.logOperationError("register_user", metrics, err, nil)
+
 		return err
 	}
 
@@ -260,9 +278,10 @@ func (s *UnifiedAuthService) RegisterUser(ctx context.Context, userID, rank stri
 
 	// Validate userID format (basic validation)
 	if strings.TrimSpace(userID) != userID {
-		err := NewUserAuthError("register_user", userID, fmt.Errorf("user ID cannot have leading/trailing whitespace"))
+		err := NewUserAuthError("register_user", userID, errors.New("user ID cannot have leading/trailing whitespace"))
 		metrics.Complete(false, err.Error())
 		s.logOperationError("register_user", metrics, err, nil)
+
 		return err
 	}
 
@@ -283,6 +302,7 @@ func (s *UnifiedAuthService) RegisterUser(ctx context.Context, userID, rank stri
 		s.logOperationError("register_user", metrics, err, map[string]interface{}{
 			"step": "duplicate_check",
 		})
+
 		return err
 	}
 
@@ -302,6 +322,7 @@ func (s *UnifiedAuthService) RegisterUser(ctx context.Context, userID, rank stri
 			"step": "database_create",
 			"rank": rank,
 		})
+
 		return err
 	}
 
@@ -314,7 +335,7 @@ func (s *UnifiedAuthService) RegisterUser(ctx context.Context, userID, rank stri
 	return nil
 }
 
-// UnregisterUser removes a user from the system
+// UnregisterUser removes a user from the system.
 func (s *UnifiedAuthService) UnregisterUser(ctx context.Context, userID string) error {
 	if s.closed {
 		return NewUserAuthError("unregister_user", userID, ErrServiceClosed)
@@ -338,6 +359,7 @@ func (s *UnifiedAuthService) UnregisterUser(ctx context.Context, userID string) 
 		s.logger.Warn("Attempted to unregister non-registered user", map[string]interface{}{
 			"user_id": userID,
 		})
+
 		return NewUserAuthError("unregister_user", userID, ErrUserNotFound)
 	}
 
@@ -347,6 +369,7 @@ func (s *UnifiedAuthService) UnregisterUser(ctx context.Context, userID string) 
 			"user_id": userID,
 			"error":   err.Error(),
 		})
+
 		return err
 	}
 
@@ -357,7 +380,7 @@ func (s *UnifiedAuthService) UnregisterUser(ctx context.Context, userID string) 
 	return nil
 }
 
-// GetUser retrieves a user by ID
+// GetUser retrieves a user by ID.
 func (s *UnifiedAuthService) GetUser(ctx context.Context, userID string) (*User, error) {
 	if s.closed {
 		return nil, NewUserAuthError("get_user", userID, ErrServiceClosed)
@@ -377,6 +400,7 @@ func (s *UnifiedAuthService) GetUser(ctx context.Context, userID string) (*User,
 			"user_id": userID,
 			"error":   err.Error(),
 		})
+
 		return nil, err
 	}
 
@@ -388,7 +412,7 @@ func (s *UnifiedAuthService) GetUser(ctx context.Context, userID string) (*User,
 	return user, nil
 }
 
-// SetUserRank assigns or updates a user's rank with validation
+// SetUserRank assigns or updates a user's rank with validation.
 func (s *UnifiedAuthService) SetUserRank(ctx context.Context, userID, rank string) error {
 	if s.closed {
 		return NewUserAuthError("set_user_rank", userID, ErrServiceClosed)
@@ -399,7 +423,7 @@ func (s *UnifiedAuthService) SetUserRank(ctx context.Context, userID, rank strin
 	}
 
 	if rank == "" {
-		return NewUserAuthError("set_user_rank", userID, fmt.Errorf("rank cannot be empty"))
+		return NewUserAuthError("set_user_rank", userID, errors.New("rank cannot be empty"))
 	}
 
 	// Validate that the rank exists and is active
@@ -429,6 +453,7 @@ func (s *UnifiedAuthService) SetUserRank(ctx context.Context, userID, rank strin
 			"rank":    rank,
 			"error":   err.Error(),
 		})
+
 		return err
 	}
 
@@ -440,7 +465,7 @@ func (s *UnifiedAuthService) SetUserRank(ctx context.Context, userID, rank strin
 	return nil
 }
 
-// IsGroupRegistered checks if a group is registered in the system
+// IsGroupRegistered checks if a group is registered in the system.
 func (s *UnifiedAuthService) IsGroupRegistered(ctx context.Context, groupID string) (bool, error) {
 	if s.closed {
 		return false, NewGroupAuthError("is_group_registered", groupID, ErrServiceClosed)
@@ -461,6 +486,7 @@ func (s *UnifiedAuthService) IsGroupRegistered(ctx context.Context, groupID stri
 			s.logger.Debug("Group not registered", map[string]interface{}{
 				"group_id": groupID,
 			})
+
 			return false, nil
 		}
 		// Return other errors as-is
@@ -470,10 +496,11 @@ func (s *UnifiedAuthService) IsGroupRegistered(ctx context.Context, groupID stri
 	s.logger.Debug("Group is registered", map[string]interface{}{
 		"group_id": groupID,
 	})
+
 	return true, nil
 }
 
-// RegisterGroup registers a new group in the system
+// RegisterGroup registers a new group in the system.
 func (s *UnifiedAuthService) RegisterGroup(ctx context.Context, groupID, registeredBy string) error {
 	if s.closed {
 		return NewGroupAuthError("register_group", groupID, ErrServiceClosed)
@@ -484,16 +511,16 @@ func (s *UnifiedAuthService) RegisterGroup(ctx context.Context, groupID, registe
 	}
 
 	if registeredBy == "" {
-		return NewGroupAuthError("register_group", groupID, fmt.Errorf("registeredBy cannot be empty"))
+		return NewGroupAuthError("register_group", groupID, errors.New("registeredBy cannot be empty"))
 	}
 
 	// Validate IDs format (basic validation)
 	if strings.TrimSpace(groupID) != groupID {
-		return NewGroupAuthError("register_group", groupID, fmt.Errorf("group ID cannot have leading/trailing whitespace"))
+		return NewGroupAuthError("register_group", groupID, errors.New("group ID cannot have leading/trailing whitespace"))
 	}
 
 	if strings.TrimSpace(registeredBy) != registeredBy {
-		return NewGroupAuthError("register_group", groupID, fmt.Errorf("registeredBy cannot have leading/trailing whitespace"))
+		return NewGroupAuthError("register_group", groupID, errors.New("registeredBy cannot have leading/trailing whitespace"))
 	}
 
 	s.logger.Info("Registering group", map[string]interface{}{
@@ -512,6 +539,7 @@ func (s *UnifiedAuthService) RegisterGroup(ctx context.Context, groupID, registe
 			"group_id":      groupID,
 			"registered_by": registeredBy,
 		})
+
 		return NewGroupAuthError("register_group", groupID, fmt.Errorf("registering user must be registered: %w", ErrUserNotFound))
 	}
 
@@ -526,6 +554,7 @@ func (s *UnifiedAuthService) RegisterGroup(ctx context.Context, groupID, registe
 			"group_id":      groupID,
 			"registered_by": registeredBy,
 		})
+
 		return NewGroupAuthError("register_group", groupID, ErrGroupAlreadyRegistered)
 	}
 
@@ -544,6 +573,7 @@ func (s *UnifiedAuthService) RegisterGroup(ctx context.Context, groupID, registe
 			"registered_by": registeredBy,
 			"error":         err.Error(),
 		})
+
 		return err
 	}
 
@@ -555,7 +585,7 @@ func (s *UnifiedAuthService) RegisterGroup(ctx context.Context, groupID, registe
 	return nil
 }
 
-// UnregisterGroup removes a group from the system
+// UnregisterGroup removes a group from the system.
 func (s *UnifiedAuthService) UnregisterGroup(ctx context.Context, groupID string) error {
 	if s.closed {
 		return NewGroupAuthError("unregister_group", groupID, ErrServiceClosed)
@@ -579,6 +609,7 @@ func (s *UnifiedAuthService) UnregisterGroup(ctx context.Context, groupID string
 		s.logger.Warn("Attempted to unregister non-registered group", map[string]interface{}{
 			"group_id": groupID,
 		})
+
 		return NewGroupAuthError("unregister_group", groupID, ErrGroupNotRegistered)
 	}
 
@@ -588,6 +619,7 @@ func (s *UnifiedAuthService) UnregisterGroup(ctx context.Context, groupID string
 			"group_id": groupID,
 			"error":    err.Error(),
 		})
+
 		return err
 	}
 
@@ -598,14 +630,14 @@ func (s *UnifiedAuthService) UnregisterGroup(ctx context.Context, groupID string
 	return nil
 }
 
-// GetRank retrieves a rank by name (for future API)
+// GetRank retrieves a rank by name (for future API).
 func (s *UnifiedAuthService) GetRank(ctx context.Context, rankName string) (*Rank, error) {
 	if s.closed {
 		return nil, NewAuthError("get_rank", fmt.Errorf("%w", ErrServiceClosed))
 	}
 
 	if rankName == "" {
-		return nil, NewAuthError("get_rank", fmt.Errorf("rank name cannot be empty"))
+		return nil, NewAuthError("get_rank", errors.New("rank name cannot be empty"))
 	}
 
 	s.logger.Debug("Getting rank", map[string]interface{}{
@@ -618,6 +650,7 @@ func (s *UnifiedAuthService) GetRank(ctx context.Context, rankName string) (*Ran
 			"rank_name": rankName,
 			"error":     err.Error(),
 		})
+
 		return nil, err
 	}
 
@@ -629,14 +662,14 @@ func (s *UnifiedAuthService) GetRank(ctx context.Context, rankName string) (*Ran
 	return rank, nil
 }
 
-// CreateRank creates a new rank with hierarchy validation (for future API)
+// CreateRank creates a new rank with hierarchy validation (for future API).
 func (s *UnifiedAuthService) CreateRank(ctx context.Context, rank *Rank) error {
 	if s.closed {
 		return NewAuthError("create_rank", fmt.Errorf("%w", ErrServiceClosed))
 	}
 
 	if rank == nil {
-		return NewAuthError("create_rank", fmt.Errorf("rank cannot be nil"))
+		return NewAuthError("create_rank", errors.New("rank cannot be nil"))
 	}
 
 	// Validate rank hierarchy
@@ -656,6 +689,7 @@ func (s *UnifiedAuthService) CreateRank(ctx context.Context, rank *Rank) error {
 			"rank_name": rank.Name,
 			"error":     err.Error(),
 		})
+
 		return err
 	}
 
@@ -667,14 +701,14 @@ func (s *UnifiedAuthService) CreateRank(ctx context.Context, rank *Rank) error {
 	return nil
 }
 
-// UpdateRank updates an existing rank with hierarchy validation (for future API)
+// UpdateRank updates an existing rank with hierarchy validation (for future API).
 func (s *UnifiedAuthService) UpdateRank(ctx context.Context, rank *Rank) error {
 	if s.closed {
 		return NewAuthError("update_rank", fmt.Errorf("%w", ErrServiceClosed))
 	}
 
 	if rank == nil {
-		return NewAuthError("update_rank", fmt.Errorf("rank cannot be nil"))
+		return NewAuthError("update_rank", errors.New("rank cannot be nil"))
 	}
 
 	// Validate rank hierarchy
@@ -694,6 +728,7 @@ func (s *UnifiedAuthService) UpdateRank(ctx context.Context, rank *Rank) error {
 			"rank_name": rank.Name,
 			"error":     err.Error(),
 		})
+
 		return err
 	}
 
@@ -705,7 +740,7 @@ func (s *UnifiedAuthService) UpdateRank(ctx context.Context, rank *Rank) error {
 	return nil
 }
 
-// ListRanks retrieves all active ranks ordered by hierarchy level
+// ListRanks retrieves all active ranks ordered by hierarchy level.
 func (s *UnifiedAuthService) ListRanks(ctx context.Context) ([]*Rank, error) {
 	if s.closed {
 		return nil, NewAuthError("list_ranks", fmt.Errorf("%w", ErrServiceClosed))
@@ -718,6 +753,7 @@ func (s *UnifiedAuthService) ListRanks(ctx context.Context) ([]*Rank, error) {
 		s.logger.Error("Failed to list ranks", map[string]interface{}{
 			"error": err.Error(),
 		})
+
 		return nil, err
 	}
 
@@ -728,14 +764,14 @@ func (s *UnifiedAuthService) ListRanks(ctx context.Context) ([]*Rank, error) {
 	return ranks, nil
 }
 
-// DeleteRank soft-deletes a rank by setting active to false
+// DeleteRank soft-deletes a rank by setting active to false.
 func (s *UnifiedAuthService) DeleteRank(ctx context.Context, rankName string) error {
 	if s.closed {
 		return NewAuthError("delete_rank", fmt.Errorf("%w", ErrServiceClosed))
 	}
 
 	if rankName == "" {
-		return NewAuthError("delete_rank", fmt.Errorf("rank name cannot be empty"))
+		return NewAuthError("delete_rank", errors.New("rank name cannot be empty"))
 	}
 
 	// Prevent deletion of default ranks
@@ -772,6 +808,7 @@ func (s *UnifiedAuthService) DeleteRank(ctx context.Context, rankName string) er
 			"rank_name": rankName,
 			"error":     err.Error(),
 		})
+
 		return err
 	}
 
@@ -782,7 +819,7 @@ func (s *UnifiedAuthService) DeleteRank(ctx context.Context, rankName string) er
 	return nil
 }
 
-// InitializeDefaultRanks creates the default owner and basic ranks if they don't exist
+// InitializeDefaultRanks creates the default owner and basic ranks if they don't exist.
 func (s *UnifiedAuthService) InitializeDefaultRanks(ctx context.Context) error {
 	if s.closed {
 		return NewAuthError("initialize_default_ranks", fmt.Errorf("%w", ErrServiceClosed))
@@ -798,6 +835,7 @@ func (s *UnifiedAuthService) InitializeDefaultRanks(ctx context.Context) error {
 			s.logger.Debug("Default rank already exists", map[string]interface{}{
 				"rank_name": defaultRank.Name,
 			})
+
 			continue
 		}
 
@@ -815,6 +853,7 @@ func (s *UnifiedAuthService) InitializeDefaultRanks(ctx context.Context) error {
 				"rank_name": defaultRank.Name,
 				"error":     err.Error(),
 			})
+
 			return NewAuthError("initialize_default_ranks", fmt.Errorf("failed to create default rank %s: %w", defaultRank.Name, err))
 		}
 
@@ -825,17 +864,18 @@ func (s *UnifiedAuthService) InitializeDefaultRanks(ctx context.Context) error {
 	}
 
 	s.logger.Info("Default ranks initialization completed", nil)
+
 	return nil
 }
 
-// validateRankHierarchy validates that the rank hierarchy is consistent
+// validateRankHierarchy validates that the rank hierarchy is consistent.
 func (s *UnifiedAuthService) validateRankHierarchy(ctx context.Context, rank *Rank) error {
 	if rank.Name == "" {
-		return fmt.Errorf("rank name cannot be empty")
+		return errors.New("rank name cannot be empty")
 	}
 
 	if rank.Level < 0 {
-		return fmt.Errorf("rank level cannot be negative")
+		return errors.New("rank level cannot be negative")
 	}
 
 	// Validate commands are not nil
@@ -870,11 +910,11 @@ func (s *UnifiedAuthService) validateRankHierarchy(ctx context.Context, rank *Ra
 	return nil
 }
 
-// validateHierarchyRules validates specific hierarchy rules
+// validateHierarchyRules validates specific hierarchy rules.
 func (s *UnifiedAuthService) validateHierarchyRules(rank *Rank, existingRanks []*Rank) error {
 	// Rule: Owner rank should have level 0 (highest privilege)
 	if rank.Name == "owner" && rank.Level != 0 {
-		return fmt.Errorf("owner rank must have level 0")
+		return errors.New("owner rank must have level 0")
 	}
 
 	// Rule: Basic rank should have the highest level number (lowest privilege)
@@ -885,6 +925,7 @@ func (s *UnifiedAuthService) validateHierarchyRules(rank *Rank, existingRanks []
 				maxLevel = existingRank.Level
 			}
 		}
+
 		if rank.Level < maxLevel {
 			return fmt.Errorf("basic rank should have the highest level number (currently %d, but found level %d)", rank.Level, maxLevel)
 		}
@@ -892,37 +933,38 @@ func (s *UnifiedAuthService) validateHierarchyRules(rank *Rank, existingRanks []
 
 	// Rule: No rank should have level 0 except owner
 	if rank.Name != "owner" && rank.Level == 0 {
-		return fmt.Errorf("only owner rank can have level 0")
+		return errors.New("only owner rank can have level 0")
 	}
 
 	return nil
 }
 
-// isDefaultRank checks if a rank is one of the default ranks
+// isDefaultRank checks if a rank is one of the default ranks.
 func (s *UnifiedAuthService) isDefaultRank(rankName string) bool {
 	for _, defaultRank := range DefaultRanks {
 		if defaultRank.Name == rankName {
 			return true
 		}
 	}
+
 	return false
 }
 
-// rankHasUsers checks if any users are assigned to the specified rank
+// rankHasUsers checks if any users are assigned to the specified rank.
 func (s *UnifiedAuthService) rankHasUsers(ctx context.Context, rankName string) (bool, error) {
 	s.logger.Debug("Checking if rank has users", map[string]interface{}{
 		"rank_name": rankName,
 	})
-	
+
 	count, err := s.store.CountUsersWithRank(ctx, rankName)
 	if err != nil {
 		return false, fmt.Errorf("failed to count users with rank: %w", err)
 	}
-	
+
 	return count > 0, nil
 }
 
-// logOperationStart logs the start of an operation with context
+// logOperationStart logs the start of an operation with context.
 func (s *UnifiedAuthService) logOperationStart(operation string, data map[string]interface{}) {
 	logData := map[string]interface{}{
 		"operation": operation,
@@ -931,18 +973,19 @@ func (s *UnifiedAuthService) logOperationStart(operation string, data map[string
 	for k, v := range data {
 		logData[k] = v
 	}
+
 	s.logger.Debug("Operation started", logData)
 }
 
-// logOperationSuccess logs successful completion of an operation with performance metrics
+// logOperationSuccess logs successful completion of an operation with performance metrics.
 func (s *UnifiedAuthService) logOperationSuccess(operation string, metrics *PerformanceMetrics, additionalData map[string]interface{}) {
 	logData := metrics.ToLogData()
 	logData["status"] = "success"
-	
+
 	for k, v := range additionalData {
 		logData[k] = v
 	}
-	
+
 	if metrics.IsSlowOperation(50 * time.Millisecond) {
 		s.logger.Warn("Slow operation completed successfully", logData)
 	} else {
@@ -950,24 +993,24 @@ func (s *UnifiedAuthService) logOperationSuccess(operation string, metrics *Perf
 	}
 }
 
-// logOperationError logs operation failure with performance metrics and error context
+// logOperationError logs operation failure with performance metrics and error context.
 func (s *UnifiedAuthService) logOperationError(operation string, metrics *PerformanceMetrics, err error, additionalData map[string]interface{}) {
 	logData := metrics.ToLogData()
 	logData["status"] = "error"
 	logData["error"] = err.Error()
-	
+
 	for k, v := range additionalData {
 		logData[k] = v
 	}
-	
+
 	// Determine log level based on error type
 	var authErr *AuthError
 	if errors.As(err, &authErr) {
 		// Check if it's a user error (not found, invalid input) vs system error
-		if errors.Is(authErr.Err, ErrUserNotFound) || 
-		   errors.Is(authErr.Err, ErrGroupNotRegistered) ||
-		   errors.Is(authErr.Err, ErrInvalidUserID) ||
-		   errors.Is(authErr.Err, ErrInvalidGroupID) {
+		if errors.Is(authErr.Err, ErrUserNotFound) ||
+			errors.Is(authErr.Err, ErrGroupNotRegistered) ||
+			errors.Is(authErr.Err, ErrInvalidUserID) ||
+			errors.Is(authErr.Err, ErrInvalidGroupID) {
 			s.logger.Debug("Operation failed with user error", logData)
 		} else {
 			s.logger.Error("Operation failed with system error", logData)
@@ -977,7 +1020,7 @@ func (s *UnifiedAuthService) logOperationError(operation string, metrics *Perfor
 	}
 }
 
-// logConcurrentOperationSafety logs information about concurrent operation safety
+// logConcurrentOperationSafety logs information about concurrent operation safety.
 func (s *UnifiedAuthService) logConcurrentOperationSafety(operation string, concurrent bool, data map[string]interface{}) {
 	logData := map[string]interface{}{
 		"operation":           operation,
@@ -987,7 +1030,7 @@ func (s *UnifiedAuthService) logConcurrentOperationSafety(operation string, conc
 	for k, v := range data {
 		logData[k] = v
 	}
-	
+
 	if !concurrent {
 		s.logger.Warn("Non-concurrent operation detected", logData)
 	} else {
@@ -995,7 +1038,7 @@ func (s *UnifiedAuthService) logConcurrentOperationSafety(operation string, conc
 	}
 }
 
-// Close closes the unified auth service and releases resources
+// Close closes the unified auth service and releases resources.
 func (s *UnifiedAuthService) Close() error {
 	if s.closed {
 		return nil
@@ -1010,11 +1053,13 @@ func (s *UnifiedAuthService) Close() error {
 			s.logger.Error("Failed to close auth store", map[string]interface{}{
 				"error": err.Error(),
 			})
+
 			return NewAuthError("service_close", fmt.Errorf("failed to close auth store: %w", err))
 		}
 	}
 
 	s.closed = true
 	s.logger.Info("Unified auth service closed successfully", nil)
+
 	return nil
 }

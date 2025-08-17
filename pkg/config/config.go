@@ -66,10 +66,10 @@ type Config struct {
 
 	// Auth database configuration
 	Auth struct {
-		DatabasePath     string
-		DefaultUserRank  string
+		DatabasePath        string
+		DefaultUserRank     string
 		EnableWhatsAppAdmin bool
-		ValidateSchema   bool
+		ValidateSchema      bool
 	}
 }
 

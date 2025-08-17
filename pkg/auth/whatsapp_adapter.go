@@ -2,40 +2,42 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 )
 
-// WhatsmeowClientAdapter adapts whatsmeow.Client to implement the WhatsAppClient interface
+// WhatsmeowClientAdapter adapts whatsmeow.Client to implement the WhatsAppClient interface.
 type WhatsmeowClientAdapter struct {
 	client *whatsmeow.Client
 }
 
-// NewWhatsmeowClientAdapter creates a new adapter for whatsmeow.Client
+// NewWhatsmeowClientAdapter creates a new adapter for whatsmeow.Client.
 func NewWhatsmeowClientAdapter(client *whatsmeow.Client) WhatsAppClient {
 	return &WhatsmeowClientAdapter{
 		client: client,
 	}
 }
 
-// IsConnected checks if the WhatsApp client is connected
+// IsConnected checks if the WhatsApp client is connected.
 func (w *WhatsmeowClientAdapter) IsConnected() bool {
 	if w.client == nil {
 		return false
 	}
+
 	return w.client.IsConnected()
 }
 
-// IsGroupAdmin checks if a user is a WhatsApp group admin
+// IsGroupAdmin checks if a user is a WhatsApp group admin.
 func (w *WhatsmeowClientAdapter) IsGroupAdmin(ctx context.Context, userJID, groupJID string) (bool, error) {
 	if w.client == nil {
-		return false, fmt.Errorf("WhatsApp client not available")
+		return false, errors.New("WhatsApp client not available")
 	}
 
 	if !w.client.IsConnected() {
-		return false, fmt.Errorf("WhatsApp client not connected")
+		return false, errors.New("WhatsApp client not connected")
 	}
 
 	// Parse JIDs

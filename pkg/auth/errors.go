@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Core auth errors
+// Core auth errors.
 var (
 	ErrUserNotRegistered       = errors.New("user not registered")
 	ErrUserNotFound            = errors.New("user not found")
@@ -23,7 +23,7 @@ var (
 	ErrServiceClosed           = errors.New("auth service is closed")
 )
 
-// AuthError wraps auth-specific errors with additional context
+// AuthError wraps auth-specific errors with additional context.
 type AuthError struct {
 	Op      string // operation that failed
 	UserID  string // user ID if relevant
@@ -35,12 +35,15 @@ func (e *AuthError) Error() string {
 	if e.UserID != "" && e.GroupID != "" {
 		return fmt.Sprintf("auth %s failed for user %s in group %s: %v", e.Op, e.UserID, e.GroupID, e.Err)
 	}
+
 	if e.UserID != "" {
 		return fmt.Sprintf("auth %s failed for user %s: %v", e.Op, e.UserID, e.Err)
 	}
+
 	if e.GroupID != "" {
 		return fmt.Sprintf("auth %s failed for group %s: %v", e.Op, e.GroupID, e.Err)
 	}
+
 	return fmt.Sprintf("auth %s failed: %v", e.Op, e.Err)
 }
 
@@ -48,7 +51,7 @@ func (e *AuthError) Unwrap() error {
 	return e.Err
 }
 
-// NewAuthError creates a new AuthError with the given operation and underlying error
+// NewAuthError creates a new AuthError with the given operation and underlying error.
 func NewAuthError(op string, err error) *AuthError {
 	return &AuthError{
 		Op:  op,
@@ -56,7 +59,7 @@ func NewAuthError(op string, err error) *AuthError {
 	}
 }
 
-// NewUserAuthError creates a new AuthError for user-specific operations
+// NewUserAuthError creates a new AuthError for user-specific operations.
 func NewUserAuthError(op, userID string, err error) *AuthError {
 	return &AuthError{
 		Op:     op,
@@ -65,7 +68,7 @@ func NewUserAuthError(op, userID string, err error) *AuthError {
 	}
 }
 
-// NewGroupAuthError creates a new AuthError for group-specific operations
+// NewGroupAuthError creates a new AuthError for group-specific operations.
 func NewGroupAuthError(op, groupID string, err error) *AuthError {
 	return &AuthError{
 		Op:      op,
@@ -74,7 +77,7 @@ func NewGroupAuthError(op, groupID string, err error) *AuthError {
 	}
 }
 
-// NewUserGroupAuthError creates a new AuthError for operations involving both user and group
+// NewUserGroupAuthError creates a new AuthError for operations involving both user and group.
 func NewUserGroupAuthError(op, userID, groupID string, err error) *AuthError {
 	return &AuthError{
 		Op:      op,
@@ -84,7 +87,7 @@ func NewUserGroupAuthError(op, userID, groupID string, err error) *AuthError {
 	}
 }
 
-// PerformanceMetrics holds timing and performance data for operations
+// PerformanceMetrics holds timing and performance data for operations.
 type PerformanceMetrics struct {
 	Operation    string
 	StartTime    time.Time
@@ -96,7 +99,7 @@ type PerformanceMetrics struct {
 	ErrorMessage string
 }
 
-// NewPerformanceMetrics creates a new performance metrics tracker
+// NewPerformanceMetrics creates a new performance metrics tracker.
 func NewPerformanceMetrics(operation, userID, groupID, command string) *PerformanceMetrics {
 	return &PerformanceMetrics{
 		Operation: operation,
@@ -108,14 +111,14 @@ func NewPerformanceMetrics(operation, userID, groupID, command string) *Performa
 	}
 }
 
-// Complete marks the operation as complete and calculates duration
+// Complete marks the operation as complete and calculates duration.
 func (pm *PerformanceMetrics) Complete(success bool, errorMessage string) {
 	pm.Duration = time.Since(pm.StartTime)
 	pm.Success = success
 	pm.ErrorMessage = errorMessage
 }
 
-// ToLogData converts performance metrics to structured log data
+// ToLogData converts performance metrics to structured log data.
 func (pm *PerformanceMetrics) ToLogData() map[string]interface{} {
 	data := map[string]interface{}{
 		"operation":   pm.Operation,
@@ -127,12 +130,15 @@ func (pm *PerformanceMetrics) ToLogData() map[string]interface{} {
 	if pm.UserID != "" {
 		data["user_id"] = pm.UserID
 	}
+
 	if pm.GroupID != "" {
 		data["group_id"] = pm.GroupID
 	}
+
 	if pm.Command != "" {
 		data["command"] = pm.Command
 	}
+
 	if pm.ErrorMessage != "" {
 		data["error"] = pm.ErrorMessage
 	}
@@ -140,7 +146,7 @@ func (pm *PerformanceMetrics) ToLogData() map[string]interface{} {
 	return data
 }
 
-// IsSlowOperation returns true if the operation took longer than the threshold
+// IsSlowOperation returns true if the operation took longer than the threshold.
 func (pm *PerformanceMetrics) IsSlowOperation(threshold time.Duration) bool {
 	return pm.Duration > threshold
 }

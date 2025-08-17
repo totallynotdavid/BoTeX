@@ -3,10 +3,11 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 )
 
-// Migration represents a database migration with version and SQL statements
+// Migration represents a database migration with version and SQL statements.
 type Migration struct {
 	Version int
 	Name    string
@@ -14,7 +15,7 @@ type Migration struct {
 	Down    []string
 }
 
-// GetAuthMigrations returns all auth module database migrations
+// GetAuthMigrations returns all auth module database migrations.
 func GetAuthMigrations() []Migration {
 	return []Migration{
 		{
@@ -82,7 +83,7 @@ func GetAuthMigrations() []Migration {
 	}
 }
 
-// MigrateAuth runs all auth module migrations on the provided database connection
+// MigrateAuth runs all auth module migrations on the provided database connection.
 func MigrateAuth(ctx context.Context, db *sql.DB) error {
 	// Create migration tracking table if it doesn't exist
 	err := createMigrationTable(ctx, db)
@@ -91,7 +92,7 @@ func MigrateAuth(ctx context.Context, db *sql.DB) error {
 	}
 
 	migrations := GetAuthMigrations()
-	
+
 	for _, migration := range migrations {
 		applied, err := isMigrationApplied(ctx, db, "auth", migration.Version)
 		if err != nil {
@@ -111,14 +112,14 @@ func MigrateAuth(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// RollbackAuth rolls back auth module migrations to a specific version
+// RollbackAuth rolls back auth module migrations to a specific version.
 func RollbackAuth(ctx context.Context, db *sql.DB, targetVersion int) error {
 	migrations := GetAuthMigrations()
-	
+
 	// Apply rollbacks in reverse order
 	for i := len(migrations) - 1; i >= 0; i-- {
 		migration := migrations[i]
-		
+
 		if migration.Version <= targetVersion {
 			break
 		}
@@ -141,7 +142,7 @@ func RollbackAuth(ctx context.Context, db *sql.DB, targetVersion int) error {
 	return nil
 }
 
-// createMigrationTable creates the migration tracking table
+// createMigrationTable creates the migration tracking table.
 func createMigrationTable(ctx context.Context, db *sql.DB) error {
 	query := `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -152,25 +153,27 @@ func createMigrationTable(ctx context.Context, db *sql.DB) error {
 			PRIMARY KEY (module, version)
 		)
 	`
-	
+
 	_, err := db.ExecContext(ctx, query)
+
 	return err
 }
 
-// isMigrationApplied checks if a specific migration has been applied
+// isMigrationApplied checks if a specific migration has been applied.
 func isMigrationApplied(ctx context.Context, db *sql.DB, module string, version int) (bool, error) {
 	query := `SELECT COUNT(*) FROM schema_migrations WHERE module = ? AND version = ?`
-	
+
 	var count int
+
 	err := db.QueryRowContext(ctx, query, module, version).Scan(&count)
 	if err != nil {
 		return false, err
 	}
-	
+
 	return count > 0, nil
 }
 
-// applyMigration applies a single migration
+// applyMigration applies a single migration.
 func applyMigration(ctx context.Context, db *sql.DB, module string, migration Migration) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -187,7 +190,7 @@ func applyMigration(ctx context.Context, db *sql.DB, module string, migration Mi
 	}
 
 	// Record the migration as applied
-	_, err = tx.ExecContext(ctx, 
+	_, err = tx.ExecContext(ctx,
 		`INSERT INTO schema_migrations (module, version, name) VALUES (?, ?, ?)`,
 		module, migration.Version, migration.Name)
 	if err != nil {
@@ -197,7 +200,7 @@ func applyMigration(ctx context.Context, db *sql.DB, module string, migration Mi
 	return tx.Commit()
 }
 
-// rollbackMigration rolls back a single migration
+// rollbackMigration rolls back a single migration.
 func rollbackMigration(ctx context.Context, db *sql.DB, module string, migration Migration) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -214,7 +217,7 @@ func rollbackMigration(ctx context.Context, db *sql.DB, module string, migration
 	}
 
 	// Remove the migration record
-	_, err = tx.ExecContext(ctx, 
+	_, err = tx.ExecContext(ctx,
 		`DELETE FROM schema_migrations WHERE module = ? AND version = ?`,
 		module, migration.Version)
 	if err != nil {
@@ -224,7 +227,7 @@ func rollbackMigration(ctx context.Context, db *sql.DB, module string, migration
 	return tx.Commit()
 }
 
-// GetAppliedMigrations returns a list of applied migrations for the auth module
+// GetAppliedMigrations returns a list of applied migrations for the auth module.
 func GetAppliedMigrations(ctx context.Context, db *sql.DB) ([]Migration, error) {
 	query := `
 		SELECT version, name 
@@ -232,7 +235,7 @@ func GetAppliedMigrations(ctx context.Context, db *sql.DB) ([]Migration, error) 
 		WHERE module = 'auth' 
 		ORDER BY version ASC
 	`
-	
+
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -242,10 +245,12 @@ func GetAppliedMigrations(ctx context.Context, db *sql.DB) ([]Migration, error) 
 	var applied []Migration
 	for rows.Next() {
 		var migration Migration
+
 		err = rows.Scan(&migration.Version, &migration.Name)
 		if err != nil {
 			return nil, err
 		}
+
 		applied = append(applied, migration)
 	}
 
@@ -256,7 +261,7 @@ func GetAppliedMigrations(ctx context.Context, db *sql.DB) ([]Migration, error) 
 // This function performs the complete database setup process:
 // 1. Runs all auth migrations to create tables and indexes
 // 2. Initializes default ranks (owner and basic) with empty command lists
-// 3. Validates the schema to ensure everything is properly set up
+// 3. Validates the schema to ensure everything is properly set up.
 func InitializeFreshSchema(ctx context.Context, db *sql.DB) error {
 	// Run all migrations first
 	err := MigrateAuth(ctx, db)
@@ -279,7 +284,7 @@ func InitializeFreshSchema(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// InitializeFreshSchemaWithConfig creates a fresh database schema with configuration-based defaults
+// InitializeFreshSchemaWithConfig creates a fresh database schema with configuration-based defaults.
 func InitializeFreshSchemaWithConfig(ctx context.Context, db *sql.DB, defaultRank string) error {
 	// Run all migrations first
 	err := MigrateAuth(ctx, db)
@@ -302,7 +307,7 @@ func InitializeFreshSchemaWithConfig(ctx context.Context, db *sql.DB, defaultRan
 	return nil
 }
 
-// initializeDefaultRanks creates the default owner and basic ranks
+// initializeDefaultRanks creates the default owner and basic ranks.
 func initializeDefaultRanks(ctx context.Context, db *sql.DB) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -313,7 +318,8 @@ func initializeDefaultRanks(ctx context.Context, db *sql.DB) error {
 	for _, rank := range DefaultRanks {
 		// Check if rank already exists
 		var count int
-		err = tx.QueryRowContext(ctx, 
+
+		err = tx.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM ranks WHERE name = ?`, rank.Name).Scan(&count)
 		if err != nil {
 			return fmt.Errorf("failed to check existing rank %s: %w", rank.Name, err)
@@ -342,7 +348,7 @@ func initializeDefaultRanks(ctx context.Context, db *sql.DB) error {
 	return tx.Commit()
 }
 
-// initializeDefaultRanksWithConfig creates the default ranks with custom configuration
+// initializeDefaultRanksWithConfig creates the default ranks with custom configuration.
 func initializeDefaultRanksWithConfig(ctx context.Context, db *sql.DB, defaultRank string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -382,7 +388,8 @@ func initializeDefaultRanksWithConfig(ctx context.Context, db *sql.DB, defaultRa
 	for _, rank := range defaultRanks {
 		// Check if rank already exists
 		var count int
-		err = tx.QueryRowContext(ctx, 
+
+		err = tx.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM ranks WHERE name = ?`, rank.Name).Scan(&count)
 		if err != nil {
 			return fmt.Errorf("failed to check existing rank %s: %w", rank.Name, err)
@@ -411,7 +418,7 @@ func initializeDefaultRanksWithConfig(ctx context.Context, db *sql.DB, defaultRa
 	return tx.Commit()
 }
 
-// ValidateAuthSchema validates that the auth database schema is properly created
+// ValidateAuthSchema validates that the auth database schema is properly created.
 func ValidateAuthSchema(ctx context.Context, db *sql.DB) error {
 	// Check if users table exists with correct structure
 	err := validateTable(ctx, db, "users", []string{
@@ -443,7 +450,7 @@ func ValidateAuthSchema(ctx context.Context, db *sql.DB) error {
 		"idx_users_active",
 		"idx_ranks_level",
 		"idx_ranks_active",
-		"idx_registered_groups_active", 
+		"idx_registered_groups_active",
 		"idx_registered_groups_by",
 	}
 
@@ -452,6 +459,7 @@ func ValidateAuthSchema(ctx context.Context, db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("failed to check index %s: %w", index, err)
 		}
+
 		if !exists {
 			return fmt.Errorf("index %s does not exist", index)
 		}
@@ -466,39 +474,44 @@ func ValidateAuthSchema(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// validateDefaultRanks ensures that the default ranks are present in the database
+// validateDefaultRanks ensures that the default ranks are present in the database.
 func validateDefaultRanks(ctx context.Context, db *sql.DB) error {
 	for _, defaultRank := range DefaultRanks {
 		var count int
-		err := db.QueryRowContext(ctx, 
-			`SELECT COUNT(*) FROM ranks WHERE name = ? AND active = TRUE`, 
+
+		err := db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM ranks WHERE name = ? AND active = TRUE`,
 			defaultRank.Name).Scan(&count)
 		if err != nil {
 			return fmt.Errorf("failed to check default rank %s: %w", defaultRank.Name, err)
 		}
-		
+
 		if count == 0 {
 			return fmt.Errorf("default rank %s not found or inactive", defaultRank.Name)
 		}
 	}
+
 	return nil
 }
 
-// validateTable checks if a table exists and has the expected columns
+// validateTable checks if a table exists and has the expected columns.
 func validateTable(ctx context.Context, db *sql.DB, tableName string, expectedColumns []string) error {
 	query := `SELECT name FROM sqlite_master WHERE type='table' AND name=?`
-	
+
 	var name string
+
 	err := db.QueryRowContext(ctx, query, tableName).Scan(&name)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("table %s does not exist", tableName)
 	}
+
 	if err != nil {
 		return err
 	}
 
 	// Check columns
 	pragmaQuery := fmt.Sprintf("PRAGMA table_info(%s)", tableName)
+
 	rows, err := db.QueryContext(ctx, pragmaQuery)
 	if err != nil {
 		return err
@@ -506,28 +519,35 @@ func validateTable(ctx context.Context, db *sql.DB, tableName string, expectedCo
 	defer rows.Close()
 
 	var actualColumns []string
+
 	for rows.Next() {
-		var cid int
-		var name, dataType string
-		var notNull, pk int
-		var defaultValue sql.NullString
-		
+		var (
+			cid            int
+			name, dataType string
+			notNull, pk    int
+			defaultValue   sql.NullString
+		)
+
 		err = rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk)
 		if err != nil {
 			return err
 		}
+
 		actualColumns = append(actualColumns, name)
 	}
 
 	// Verify all expected columns exist
 	for _, expected := range expectedColumns {
 		found := false
+
 		for _, actual := range actualColumns {
 			if actual == expected {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			return fmt.Errorf("column %s not found in table %s", expected, tableName)
 		}
@@ -536,15 +556,16 @@ func validateTable(ctx context.Context, db *sql.DB, tableName string, expectedCo
 	return nil
 }
 
-// indexExists checks if an index exists in the database
+// indexExists checks if an index exists in the database.
 func indexExists(ctx context.Context, db *sql.DB, indexName string) (bool, error) {
 	query := `SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?`
-	
+
 	var count int
+
 	err := db.QueryRowContext(ctx, query, indexName).Scan(&count)
 	if err != nil {
 		return false, err
 	}
-	
+
 	return count > 0, nil
 }

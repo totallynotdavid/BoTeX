@@ -59,29 +59,32 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 	if dbPath == "" {
 		dbPath = "file:botex.db?_foreign_keys=on&_journal_mode=WAL"
 	}
-	
+
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database for unified auth module: %w", err)
 	}
-	
+
 	// Test the connection
 	err = db.Ping()
 	if err != nil {
 		db.Close()
+
 		return nil, fmt.Errorf("failed to ping database for unified auth module: %w", err)
 	}
-	
+
 	// Initialize fresh database schema with default ranks
 	ctx := context.Background()
+
 	appLogger.Info("Initializing fresh database schema with default ranks", nil)
-	
+
 	err = auth.InitializeFreshSchema(ctx, db)
 	if err != nil {
 		db.Close()
+
 		return nil, fmt.Errorf("failed to initialize fresh database schema: %w", err)
 	}
-	
+
 	appLogger.Info("Database schema initialization completed successfully", nil)
 
 	// Create WhatsApp client adapter for auth store
@@ -91,6 +94,7 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 	authStore, err := auth.NewSQLiteAuthStore(db, loggerFactory, whatsappClientAdapter)
 	if err != nil {
 		db.Close()
+
 		return nil, fmt.Errorf("failed to create auth store: %w", err)
 	}
 
@@ -164,8 +168,6 @@ func (b *Bot) Shutdown() {
 			})
 		}
 	}
-
-
 
 	// Close database connection
 	if b.db != nil {
