@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # User Configuration
-scan_dirs=("pkg")
+scan_dirs=("pkg/auth" "pkg/tier")
 ignore_paths=("ratelimit")
 ignore_wildcards=("")
 root_files=("main.go")

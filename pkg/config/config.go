@@ -63,6 +63,14 @@ type Config struct {
 	PDFLatexPath string
 	ConvertPath  string
 	CWebPPath    string
+
+	// Auth database configuration
+	Auth struct {
+		DatabasePath     string
+		DefaultUserRank  string
+		EnableWhatsAppAdmin bool
+		ValidateSchema   bool
+	}
 }
 
 func Load() *Config {
@@ -92,6 +100,12 @@ func Load() *Config {
 	} else {
 		cfg.Timing.LogThreshold = DefaultTimingLogThreshold
 	}
+
+	// Load auth configuration
+	cfg.Auth.DatabasePath = util.GetEnv("BOTEX_AUTH_DB_PATH", cfg.DBPath)
+	cfg.Auth.DefaultUserRank = util.GetEnv("BOTEX_AUTH_DEFAULT_RANK", "basic")
+	cfg.Auth.EnableWhatsAppAdmin = util.GetEnv("BOTEX_AUTH_ENABLE_WHATSAPP_ADMIN", "true") == "true"
+	cfg.Auth.ValidateSchema = util.GetEnv("BOTEX_AUTH_VALIDATE_SCHEMA", "true") == "true"
 
 	return cfg
 }
@@ -123,6 +137,15 @@ func (c *Config) Validate() error {
 
 	if c.Timing.LogThreshold < 0 {
 		return ErrTimingLogThresholdInvalid
+	}
+
+	// Validate auth configuration
+	if c.Auth.DatabasePath == "" {
+		c.Auth.DatabasePath = c.DBPath // Fallback to main DB path
+	}
+
+	if c.Auth.DefaultUserRank == "" {
+		c.Auth.DefaultUserRank = "basic"
 	}
 
 	return nil
