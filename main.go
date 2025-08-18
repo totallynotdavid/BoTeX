@@ -103,9 +103,6 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 
 func setupDatabase(cfg *config.Config, appLogger *logger.Logger) (*sql.DB, error) {
 	dbPath := cfg.DBPath
-	if dbPath == "" {
-		dbPath = "file:botex.db?_foreign_keys=on&_journal_mode=WAL"
-	}
 
 	appLogger.Info("Opening database connection", map[string]interface{}{
 		"path": dbPath,
@@ -140,9 +137,6 @@ func setupDatabase(cfg *config.Config, appLogger *logger.Logger) (*sql.DB, error
 
 func setupWhatsAppClient(cfg *config.Config, loggerFactory *logger.Factory) (*whatsmeow.Client, error) {
 	dbPath := cfg.DBPath
-	if dbPath == "" {
-		dbPath = "file:botex.db?_foreign_keys=on&_journal_mode=WAL"
-	}
 
 	dbLog := loggerFactory.CreateWhatsmeowLogger("Database", cfg.Logging.Level.String())
 	clientLog := loggerFactory.CreateWhatsmeowLogger("Client", cfg.Logging.Level.String())
