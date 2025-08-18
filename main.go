@@ -16,7 +16,6 @@ import (
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/timing"
-	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdp/qrterminal/v3"
 	"go.mau.fi/whatsmeow"
@@ -259,22 +258,15 @@ func (b *Bot) connect() error {
 	return nil
 }
 
-func run() error {
-	err := godotenv.Load()
-	if err != nil && !os.IsNotExist(err) {
-		log.Printf("Warning: could not load .env file: %v", err)
-	}
-
-	cfg := config.Load()
-
-	err = cfg.Validate()
+func main() {
+	cfg, err := config.Load()
 	if err != nil {
-		return fmt.Errorf("invalid configuration: %w", err)
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
 	loggerFactory, err := logger.NewFactory(cfg.Logging)
 	if err != nil {
-		return fmt.Errorf("failed to create logger factory: %w", err)
+		log.Fatalf("Failed to create logger factory: %v", err)
 	}
 
 	defer func() {
@@ -286,26 +278,20 @@ func run() error {
 
 	bot, err := NewBot(cfg, loggerFactory)
 	if err != nil {
-		return fmt.Errorf("failed to initialize bot: %w", err)
+		log.Printf("Failed to initialize bot: %v", err)
+
+		return
 	}
 
 	err = bot.Start()
 	if err != nil {
-		return fmt.Errorf("failed to start bot: %w", err)
+		log.Printf("Failed to start bot: %v", err)
+
+		return
 	}
 
 	signal.Notify(bot.shutdownSignal, os.Interrupt, syscall.SIGTERM)
 	<-bot.shutdownSignal
 
 	bot.Shutdown()
-
-	return nil
-}
-
-func main() {
-	err := run()
-	if err != nil {
-		log.Printf("Error: %v", err)
-		os.Exit(1)
-	}
 }
