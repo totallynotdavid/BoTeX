@@ -48,12 +48,14 @@ INSERT OR IGNORE INTO ranks (name, level, commands, description) VALUES
 ('user', 100, 'help,latex', 'Basic user access');
 `
 
-func InitSchema(ctx context.Context, db *sql.DB) error {
-	if _, err := db.ExecContext(ctx, schema); err != nil {
+func InitSchema(ctx context.Context, database *sql.DB) error {
+	_, err := database.ExecContext(ctx, schema)
+	if err != nil {
 		return err
 	}
 
-	if _, err := db.ExecContext(ctx, defaultRanksData); err != nil {
+	_, err = database.ExecContext(ctx, defaultRanksData)
+	if err != nil {
 		return err
 	}
 
