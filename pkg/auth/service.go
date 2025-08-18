@@ -77,6 +77,7 @@ func (s *Service) RegisterUser(ctx context.Context, userID, rankName, registered
 		if errors.Is(err, ErrRankNotFound) {
 			return ErrRankNotFound
 		}
+
 		return err
 	}
 

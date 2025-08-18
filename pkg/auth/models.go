@@ -61,7 +61,7 @@ func ParseCommands(raw string) []string {
 }
 
 // converts slice to comma-separated string.
-// inverse of ParseCommands
+// inverse of ParseCommands.
 func JoinCommands(commands []string) string {
 	if len(commands) == 0 {
 		return ""
