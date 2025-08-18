@@ -132,15 +132,15 @@ func (h *CommandHandler) Close() {
 }
 
 func (h *CommandHandler) HandleEvent(evt interface{}) {
-	msgEvent, ok := evt.(*events.Message)
-	if !ok {
+	msgEvent, isMessage := evt.(*events.Message)
+	if !isMessage {
 		return
 	}
 
 	msg := message.NewMessage(msgEvent)
 
-	command, ok := h.extractCommand(msg)
-	if !ok {
+	command, hasCommand := h.extractCommand(msg)
+	if !hasCommand {
 		return
 	}
 
@@ -258,6 +258,7 @@ func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.
 
 	if rateErr.Notify {
 		waitMsg := fmt.Sprintf("Too many requests. Please wait %d seconds.", int(rateErr.ResetAfter.Seconds()))
+
 		textErr := h.messageSender.SendText(ctx, msg.Recipient, waitMsg)
 		if textErr != nil {
 			h.logger.Error("Failed to send rate limit message", map[string]interface{}{"error": textErr.Error()})
@@ -332,6 +333,7 @@ func (h *CommandHandler) handlePermissionDenied(ctx context.Context, msg *messag
 	}
 
 	permissionMsg := h.createPermissionDeniedMessage(msg.IsGroup, command, result.Reason)
+
 	textErr := h.messageSender.SendText(ctx, msg.Recipient, permissionMsg)
 	if textErr != nil {
 		h.logger.Error("Failed to send permission denied message", map[string]interface{}{"error": textErr.Error()})
