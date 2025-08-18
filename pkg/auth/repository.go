@@ -100,7 +100,7 @@ func (r *Repository) GetRank(ctx context.Context, name string) (*Rank, error) {
 	return &rank, nil
 }
 
-func (r *Repository) ListRanks(ctx context.Context) ([]*Rank, error) {
+func (r *Repository) ListRanks(ctx context.Context) (ranks []*Rank, err error) {
 	query := `SELECT name, level, commands FROM ranks WHERE active = 1 ORDER BY level`
 
 	rows, err := r.db.QueryContext(ctx, query)
@@ -108,18 +108,22 @@ func (r *Repository) ListRanks(ctx context.Context) ([]*Rank, error) {
 		return nil, fmt.Errorf("failed to list ranks: %w", err)
 	}
 
-	defer rows.Close()
+	defer func() {
+		cerr := rows.Close()
+		if cerr != nil && err == nil {
+			err = fmt.Errorf("failed to close rows: %w", cerr)
+		}
+	}()
 
-	var ranks []*Rank
 	for rows.Next() {
 		var (
 			rank        Rank
 			commandsRaw string
 		)
 
-		err := rows.Scan(&rank.Name, &rank.Level, &commandsRaw)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan rank: %w", err)
+		scanErr := rows.Scan(&rank.Name, &rank.Level, &commandsRaw)
+		if scanErr != nil {
+			return nil, fmt.Errorf("failed to scan rank: %w", scanErr)
 		}
 
 		rank.Commands = ParseCommands(commandsRaw)
