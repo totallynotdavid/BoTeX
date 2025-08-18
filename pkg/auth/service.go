@@ -17,7 +17,8 @@ func NewService(db *sql.DB) *Service {
 }
 
 func (s *Service) CheckPermission(ctx context.Context, userID, groupID, command string) (*PermissionResult, error) {
-	if err := ValidateCommand(command); err != nil {
+	err := ValidateCommand(command)
+	if err != nil {
 		return nil, err
 	}
 
@@ -68,11 +69,12 @@ func (s *Service) CheckPermission(ctx context.Context, userID, groupID, command 
 }
 
 func (s *Service) RegisterUser(ctx context.Context, userID, rankName, registeredBy string) error {
-	if err := ValidateRankName(rankName); err != nil {
+	err := ValidateRankName(rankName)
+	if err != nil {
 		return err
 	}
 
-	_, err := s.repo.GetRank(ctx, rankName)
+	_, err = s.repo.GetRank(ctx, rankName)
 	if err != nil {
 		if errors.Is(err, ErrRankNotFound) {
 			return ErrRankNotFound
