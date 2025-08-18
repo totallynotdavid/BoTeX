@@ -25,25 +25,111 @@ import (
 var ErrQRLoginTimeout = errors.New("QR login timed out")
 
 type Bot struct {
-	client          *whatsmeow.Client
-	commandHandler  *commands.CommandHandler
-	config          *config.Config
-	logger          *logger.Logger
-	loggerFactory   *logger.Factory
-	shutdownSignals chan os.Signal
-	authService     auth.AuthService
-	db              *sql.DB
+	client         *whatsmeow.Client
+	commandHandler *commands.CommandHandler
+	config         *config.Config
+	logger         *logger.Logger
+	loggerFactory  *logger.Factory
+	shutdownSignal chan os.Signal
+	authService    auth.Auth
+	db             *sql.DB
 }
 
 func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 	appLogger := loggerFactory.GetLogger("bot")
 
+	database, err := setupDatabase(cfg, appLogger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup database: %w", err)
+	}
+
+	var successfulInit bool
+
+	defer func() {
+		if !successfulInit {
+			_ = database.Close()
+		}
+	}()
+
+	ctx := context.Background()
+
+	appLogger.Info("Initializing database schema", nil)
+
+	if err := auth.InitSchema(ctx, database); err != nil {
+		return nil, fmt.Errorf("failed to initialize database schema: %w", err)
+	}
+
+	appLogger.Info("Database schema initialization completed", nil)
+
+	client, err := setupWhatsAppClient(cfg, loggerFactory)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup WhatsApp client: %w", err)
+	}
+
+	authService := auth.New(database)
+
+	commandHandler, err := setupCommands(client, cfg, loggerFactory, authService)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup commands: %w", err)
+	}
+
+	successfulInit = true
+
+	return &Bot{
+		client:         client,
+		commandHandler: commandHandler,
+		config:         cfg,
+		logger:         appLogger,
+		loggerFactory:  loggerFactory,
+		shutdownSignal: make(chan os.Signal, 1),
+		authService:    authService,
+		db:             database,
+	}, nil
+}
+
+func setupDatabase(cfg *config.Config, logger *logger.Logger) (*sql.DB, error) {
+	dbPath := cfg.DBPath
+	if dbPath == "" {
+		dbPath = "file:botex.db?_foreign_keys=on&_journal_mode=WAL"
+	}
+
+	logger.Info("Opening database connection", map[string]interface{}{
+		"path": dbPath,
+	})
+
+	database, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	database.SetMaxOpenConns(25)
+	database.SetMaxIdleConns(5)
+	database.SetConnMaxLifetime(3600) // 1 hour
+	database.SetConnMaxIdleTime(1800) // 30 minutes
+
+	if err := database.PingContext(context.Background()); err != nil {
+		_ = database.Close()
+
+		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	logger.Info("Database connection established", nil)
+
+	return database, nil
+}
+
+func setupWhatsAppClient(cfg *config.Config, loggerFactory *logger.Factory) (*whatsmeow.Client, error) {
+	dbPath := cfg.DBPath
+	if dbPath == "" {
+		dbPath = "file:botex.db?_foreign_keys=on&_journal_mode=WAL"
+	}
+
 	dbLog := loggerFactory.CreateWhatsmeowLogger("Database", cfg.Logging.Level.String())
 	clientLog := loggerFactory.CreateWhatsmeowLogger("Client", cfg.Logging.Level.String())
 
-	container, err := sqlstore.New(context.Background(), "sqlite3", cfg.DBPath, dbLog)
+	container, err := sqlstore.New(context.Background(), "sqlite3", dbPath, dbLog)
 	if err != nil {
-		return nil, fmt.Errorf("database initialization failed: %w", err)
+		return nil, fmt.Errorf("whatsmeow sqlstore initialization failed: %w", err)
 	}
 
 	deviceStore, err := container.GetFirstDevice(context.Background())
@@ -53,57 +139,10 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 
-	// Create database connection for unified auth module
-	// Parse the database path to get a clean connection string
-	dbPath := cfg.DBPath
-	if dbPath == "" {
-		dbPath = "file:botex.db?_foreign_keys=on&_journal_mode=WAL"
-	}
+	return client, nil
+}
 
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database for unified auth module: %w", err)
-	}
-
-	// Test the connection
-	err = db.Ping()
-	if err != nil {
-		db.Close()
-
-		return nil, fmt.Errorf("failed to ping database for unified auth module: %w", err)
-	}
-
-	// Initialize fresh database schema with default ranks
-	ctx := context.Background()
-
-	appLogger.Info("Initializing fresh database schema with default ranks", nil)
-
-	err = auth.InitializeFreshSchema(ctx, db)
-	if err != nil {
-		db.Close()
-
-		return nil, fmt.Errorf("failed to initialize fresh database schema: %w", err)
-	}
-
-	appLogger.Info("Database schema initialization completed successfully", nil)
-
-	// Create WhatsApp client adapter for auth store
-	whatsappClientAdapter := auth.NewWhatsmeowClientAdapter(client)
-
-	// Initialize unified auth store
-	authStore, err := auth.NewSQLiteAuthStore(db, loggerFactory, whatsappClientAdapter)
-	if err != nil {
-		db.Close()
-
-		return nil, fmt.Errorf("failed to create auth store: %w", err)
-	}
-
-	// Initialize unified auth service
-	authService, err := auth.NewUnifiedAuthService(authStore, loggerFactory)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create unified auth service: %w", err)
-	}
-
+func setupCommands(client *whatsmeow.Client, cfg *config.Config, loggerFactory *logger.Factory, authService auth.Auth) (*commands.CommandHandler, error) {
 	registry := commands.NewCommandRegistry(loggerFactory)
 
 	timeLogger := loggerFactory.GetLogger("timing")
@@ -115,7 +154,6 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 	registry.Register(helpCmd)
 	registry.Register(latexCmd)
 
-	// Initialize command handler with unified auth service
 	commandHandler, err := commands.NewCommandHandler(client, cfg, registry, loggerFactory, authService)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create command handler: %w", err)
@@ -123,16 +161,7 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 
 	helpCmd.SetHandler(commandHandler)
 
-	return &Bot{
-		client:          client,
-		commandHandler:  commandHandler,
-		config:          cfg,
-		logger:          appLogger,
-		loggerFactory:   loggerFactory,
-		shutdownSignals: make(chan os.Signal, 1),
-		authService:     authService,
-		db:              db,
-	}, nil
+	return commandHandler, nil
 }
 
 func (b *Bot) Start() error {
@@ -153,23 +182,14 @@ func (b *Bot) Start() error {
 func (b *Bot) Shutdown() {
 	b.logger.Info("Initiating graceful shutdown", nil)
 
-	b.commandHandler.Close()
+	if b.commandHandler != nil {
+		b.commandHandler.Close()
+	}
 
-	if b.client.IsConnected() {
+	if b.client != nil && b.client.IsConnected() {
 		b.client.Disconnect()
 	}
 
-	// Close unified auth service
-	if b.authService != nil {
-		err := b.authService.Close()
-		if err != nil {
-			b.logger.Error("Error closing unified auth service", map[string]interface{}{
-				"error": err.Error(),
-			})
-		}
-	}
-
-	// Close database connection
 	if b.db != nil {
 		err := b.db.Close()
 		if err != nil {
@@ -186,7 +206,7 @@ func (b *Bot) Shutdown() {
 		log.Printf("Error closing logger factory: %v", err)
 	}
 
-	close(b.shutdownSignals)
+	close(b.shutdownSignal)
 }
 
 func (b *Bot) handleQRLogin() error {
@@ -227,8 +247,8 @@ func (b *Bot) connect() error {
 
 func run() error {
 	err := godotenv.Load()
-	if err != nil {
-		log.Printf("Error loading .env file: %v", err)
+	if err != nil && !os.IsNotExist(err) {
+		log.Printf("Warning: could not load .env file: %v", err)
 	}
 
 	cfg := config.Load()
@@ -260,8 +280,9 @@ func run() error {
 		return fmt.Errorf("failed to start bot: %w", err)
 	}
 
-	signal.Notify(bot.shutdownSignals, os.Interrupt, syscall.SIGTERM)
-	<-bot.shutdownSignals
+	signal.Notify(bot.shutdownSignal, os.Interrupt, syscall.SIGTERM)
+	<-bot.shutdownSignal
+
 	bot.Shutdown()
 
 	return nil

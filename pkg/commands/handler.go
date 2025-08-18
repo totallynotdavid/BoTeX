@@ -58,31 +58,33 @@ func (r *CommandRegistry) Register(cmd Command) {
 }
 
 type CommandHandler struct {
-	client         *whatsmeow.Client
-	commands       map[string]Command
-	config         *config.Config
-	messageSender  *message.MessageSender
-	logger         *logger.Logger
-	rateService    *ratelimit.RateLimitService
-	semaphore      chan struct{}
-	timeTracker    *timing.Tracker
-	authService    auth.AuthService
-	contextBuilder auth.ContextBuilder
+	client        *whatsmeow.Client
+	commands      map[string]Command
+	config        *config.Config
+	messageSender *message.MessageSender
+	logger        *logger.Logger
+	rateService   *ratelimit.RateLimitService
+	semaphore     chan struct{}
+	timeTracker   *timing.Tracker
+	authService   auth.Auth
 }
 
-func NewCommandHandler(client *whatsmeow.Client, cfg *config.Config, registry *CommandRegistry, loggerFactory *logger.Factory, authService auth.AuthService) (*CommandHandler, error) {
+func NewCommandHandler(client *whatsmeow.Client, cfg *config.Config, registry *CommandRegistry, loggerFactory *logger.Factory, authService auth.Auth) (*CommandHandler, error) {
 	cmdLogger := loggerFactory.GetLogger("command-handler")
 
 	limiter := ratelimit.NewLimiter(
 		cfg.RateLimit.Requests,
 		cfg.RateLimit.Period,
 	)
+
 	notifier := ratelimit.NewNotifier(
 		cfg.RateLimit.NotificationCooldown,
 	)
+
 	cleaner := ratelimit.NewAutoCleaner(
 		cfg.RateLimit.CleanupInterval,
 	)
+
 	rateService := ratelimit.NewRateLimitService(
 		limiter,
 		notifier,
@@ -98,16 +100,15 @@ func NewCommandHandler(client *whatsmeow.Client, cfg *config.Config, registry *C
 	timeTracker := timing.NewTrackerFromConfig(cfg, loggerFactory.GetLogger("timing"))
 
 	handler := &CommandHandler{
-		client:         client,
-		commands:       make(map[string]Command),
-		config:         cfg,
-		messageSender:  message.NewMessageSender(client),
-		logger:         cmdLogger,
-		rateService:    rateService,
-		semaphore:      make(chan struct{}, cfg.MaxConcurrent),
-		timeTracker:    timeTracker,
-		authService:    authService,
-		contextBuilder: auth.NewContextBuilder(authService),
+		client:        client,
+		commands:      make(map[string]Command),
+		config:        cfg,
+		messageSender: message.NewMessageSender(client),
+		logger:        cmdLogger,
+		rateService:   rateService,
+		semaphore:     make(chan struct{}, cfg.MaxConcurrent),
+		timeTracker:   timeTracker,
+		authService:   authService,
 	}
 
 	for _, cmd := range registry.commands {
@@ -137,111 +138,83 @@ func (h *CommandHandler) HandleEvent(evt interface{}) {
 	}
 
 	msg := message.NewMessage(msgEvent)
+	text := msg.GetText()
+
+	if !strings.HasPrefix(text, "!") {
+		return
+	}
+
+	parts := strings.Fields(text[1:])
+	if len(parts) == 0 {
+		return
+	}
+
+	command := parts[0]
+	userID := msg.Sender.String()
+
+	groupID := ""
+	if msg.IsGroup {
+		groupID = msg.GroupID.String()
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultCommandTimeout)
 	defer cancel()
 
-	err := h.timeTracker.Track(ctx, "handle_message", timing.Basic, func(ctx context.Context) error {
-		// Build message context with unified permission checking
-		var (
-			msgContext *auth.MessageContext
-			buildErr   error
-		)
-
-		trackSubOpErr := h.timeTracker.TrackSubOperation(ctx, "build_context", func(ctx context.Context) error {
-			msgContext, buildErr = h.contextBuilder.BuildContext(ctx, msg)
-
-			return nil
+	permissionResult, err := h.authService.CheckPermission(ctx, userID, groupID, command)
+	if err != nil {
+		h.logger.Error("Permission check failed", map[string]interface{}{
+			"command":  command,
+			"sender":   userID,
+			"group_id": groupID,
+			"error":    err.Error(),
 		})
-		if trackSubOpErr != nil {
-			h.logger.Error("Failed to track context building", map[string]interface{}{
-				"error": trackSubOpErr.Error(),
-			})
-		}
 
-		if buildErr != nil {
-			h.logger.Error("Failed to build message context", map[string]interface{}{
-				"sender": msg.Sender,
-				"error":  buildErr.Error(),
-			})
+		return
+	}
 
-			return fmt.Errorf("failed to build message context: %w", buildErr)
-		}
-
-		// Early return if not a command
-		if !msgContext.IsCommand() {
-			return nil
-		}
-
-		ctx = timing.WithOperation(ctx, "command:"+msgContext.Command)
-
-		// Early return if permission denied - implement early return logic
-		if !msgContext.IsAllowed() {
-			h.logger.Info("Command permission denied - early return", map[string]interface{}{
-				"command":   msgContext.Command,
-				"sender":    msg.Sender,
-				"reason":    msgContext.GetPermissionReason(),
-				"user_rank": msgContext.GetUserRank(),
-			})
-
-			// Handle permission denied with user feedback
-			return h.handlePermissionDeniedFromContext(ctx, msgContext)
-		}
-
-		var rateLimitErr error
-
-		trackSubOpErr = h.timeTracker.TrackSubOperation(ctx, "check_rate_limit", func(ctx context.Context) error {
-			rateLimitErr = h.rateService.Check(ctx, msg)
-
-			return nil
+	if !permissionResult.Allowed {
+		h.logger.Info("Command permission denied", map[string]interface{}{
+			"command":   command,
+			"sender":    userID,
+			"reason":    permissionResult.Reason,
+			"user_rank": permissionResult.UserRank,
 		})
-		if trackSubOpErr != nil {
-			h.logger.Error("Failed to track rate limit check", map[string]interface{}{
-				"error": trackSubOpErr.Error(),
-			})
-		}
+		_ = h.handlePermissionDenied(ctx, msg, command, permissionResult)
 
+		return
+	}
+
+	err = h.timeTracker.Track(ctx, "handle_command", timing.Basic, func(ctx context.Context) error {
+		rateLimitErr := h.rateService.Check(ctx, msg)
 		if rateLimitErr != nil {
 			h.handleRateLimitError(ctx, msg, rateLimitErr)
 
 			return nil
 		}
 
-		var (
-			release func()
-			semErr  error
-		)
-
-		trackSubOpErr = h.timeTracker.TrackSubOperation(ctx, "acquire_semaphore", func(ctx context.Context) error {
-			release, semErr = h.acquireSemaphore(ctx)
-
-			return nil
-		})
-		if trackSubOpErr != nil {
-			h.logger.Error("Failed to track semaphore acquisition", map[string]interface{}{
-				"error": trackSubOpErr.Error(),
-			})
-		}
-
+		release, semErr := h.acquireSemaphore(ctx)
 		if semErr != nil {
 			h.logger.Warn("Concurrency limit exceeded", map[string]interface{}{
 				"sender": msg.Sender,
-				"error":  semErr.Error(),
 			})
 
 			return h.handleConcurrencyLimit(ctx, msg)
 		}
-
 		defer release()
 
-		// Set command args for the command handler
-		msg.Text = msgContext.GetCommandArgs()
+		if len(parts) > 1 {
+			msg.Text = strings.Join(parts[1:], " ")
+		} else {
+			msg.Text = ""
+		}
 
-		return h.executeCommandWithContext(ctx, msgContext)
+		return h.executeCommand(ctx, msg, command)
 	})
 	if err != nil {
-		h.logger.Error("Failed to track message handling", map[string]interface{}{
-			"error": err.Error(),
+		h.logger.Error("Failed to track command handling", map[string]interface{}{
+			"command": command,
+			"sender":  msg.Sender,
+			"error":   err.Error(),
 		})
 	}
 }
@@ -257,37 +230,11 @@ func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.
 		return
 	}
 
-	trackErr := h.timeTracker.TrackSubOperation(ctx, "handle_rate_limit", func(ctx context.Context) error {
-		var err error
+	_ = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
 
-		err = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
-		if err != nil {
-			h.logger.Error("Failed to send rate limit reaction", map[string]interface{}{
-				"error":     err.Error(),
-				"sender":    msg.Sender,
-				"messageID": msg.MessageID,
-			})
-		}
-
-		if rateErr.Notify {
-			waitMsg := fmt.Sprintf("Too many requests. Please wait %d seconds.", int(rateErr.ResetAfter.Seconds()))
-
-			err = h.messageSender.SendText(ctx, msg.Recipient, waitMsg)
-			if err != nil {
-				h.logger.Error("Failed to send rate limit wait message", map[string]interface{}{
-					"error":     err.Error(),
-					"sender":    msg.Sender,
-					"messageID": msg.MessageID,
-				})
-			}
-		}
-
-		return nil
-	})
-	if trackErr != nil {
-		h.logger.Error("Failed to track rate limit handling", map[string]interface{}{
-			"error": trackErr.Error(),
-		})
+	if rateErr.Notify {
+		waitMsg := fmt.Sprintf("Too many requests. Please wait %d seconds.", int(rateErr.ResetAfter.Seconds()))
+		_ = h.messageSender.SendText(ctx, msg.Recipient, waitMsg)
 	}
 }
 
@@ -302,81 +249,26 @@ func (h *CommandHandler) acquireSemaphore(ctx context.Context) (func(), error) {
 	}
 }
 
-func (h *CommandHandler) sendErrorReaction(ctx context.Context, msg *message.Message, cmdName string) error {
-	err := h.timeTracker.TrackSubOperation(ctx, "send_error_reaction", func(ctx context.Context) error {
-		err := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "❌")
-		if err != nil {
-			h.logger.Error("Failed to send error reaction", map[string]interface{}{
-				"error":     err.Error(),
-				"command":   cmdName,
-				"sender":    msg.Sender,
-				"messageID": msg.MessageID,
-			})
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to track error reaction: %w", err)
-	}
-
-	return nil
-}
-
-func (h *CommandHandler) sendSuccessReaction(ctx context.Context, msg *message.Message, cmdName string) error {
-	err := h.timeTracker.TrackSubOperation(ctx, "send_success_reaction", func(ctx context.Context) error {
-		err := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "✅")
-		if err != nil {
-			h.logger.Error("Failed to send success reaction", map[string]interface{}{
-				"error":     err.Error(),
-				"command":   cmdName,
-				"sender":    msg.Sender,
-				"messageID": msg.MessageID,
-			})
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to track success reaction: %w", err)
-	}
-
-	return nil
-}
-
-func (h *CommandHandler) executeCommandWithContext(ctx context.Context, msgContext *auth.MessageContext) error {
-	cmd, exists := h.commands[msgContext.Command]
+func (h *CommandHandler) executeCommand(ctx context.Context, msg *message.Message, command string) error {
+	cmd, exists := h.commands[command]
 	if !exists {
-		return fmt.Errorf("%w: %q", ErrCommandNotFound, msgContext.Command)
+		return fmt.Errorf("%w: %q", ErrCommandNotFound, command)
 	}
 
-	err := h.timeTracker.TrackCommand(ctx, msgContext.Command, func(ctx context.Context) error {
-		// Permission already checked in context building - no need to check again
-		// This implements the single permission check requirement
-		err := cmd.Handle(ctx, msgContext.Message)
+	err := h.timeTracker.TrackCommand(ctx, command, func(ctx context.Context) error {
+		err := cmd.Handle(ctx, msg)
 		if err != nil {
 			h.logger.Error("Command execution failed", map[string]interface{}{
-				"command": msgContext.Command,
-				"sender":  msgContext.Message.Sender,
+				"command": command,
+				"sender":  msg.Sender,
 				"error":   err.Error(),
 			})
+			_ = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "❌")
 
-			trackErr := h.sendErrorReaction(ctx, msgContext.Message, msgContext.Command)
-			if trackErr != nil {
-				h.logger.Error("Failed to track error reaction", map[string]interface{}{
-					"error": trackErr.Error(),
-				})
-			}
-
-			return fmt.Errorf("command %q execution failed: %w", msgContext.Command, err)
+			return fmt.Errorf("command %q execution failed: %w", command, err)
 		}
 
-		err = h.sendSuccessReaction(ctx, msgContext.Message, msgContext.Command)
-		if err != nil {
-			h.logger.Error("Failed to track success reaction", map[string]interface{}{
-				"error": err.Error(),
-			})
-		}
+		_ = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "✅")
 
 		return nil
 	})
@@ -388,108 +280,34 @@ func (h *CommandHandler) executeCommandWithContext(ctx context.Context, msgConte
 }
 
 func (h *CommandHandler) handleConcurrencyLimit(ctx context.Context, msg *message.Message) error {
-	err := h.timeTracker.TrackSubOperation(ctx, "handle_concurrency_limit", func(ctx context.Context) error {
-		var err error
-
-		err = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
-		if err != nil {
-			h.logger.Warn("Failed to send concurrency reaction", map[string]interface{}{
-				"error":     err.Error(),
-				"sender":    msg.Sender,
-				"messageID": msg.MessageID,
-			})
-		}
-
-		err = h.messageSender.SendText(ctx, msg.Recipient, concurrentLimitMsg)
-		if err != nil {
-			h.logger.Warn("Failed to send concurrency message", map[string]interface{}{
-				"error":     err.Error(),
-				"sender":    msg.Sender,
-				"messageID": msg.MessageID,
-			})
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to track concurrency limit handling: %w", err)
-	}
+	_ = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
+	_ = h.messageSender.SendText(ctx, msg.Recipient, concurrentLimitMsg)
 
 	return nil
 }
 
-func (h *CommandHandler) handlePermissionDeniedFromContext(ctx context.Context, msgContext *auth.MessageContext) error {
-	err := h.timeTracker.TrackSubOperation(ctx, "handle_permission_denied", func(ctx context.Context) error {
-		var err error
+func (h *CommandHandler) handlePermissionDenied(ctx context.Context, msg *message.Message, command string, result *auth.PermissionResult) error {
+	_ = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "🚫")
 
-		// Send permission denied reaction
-		err = h.messageSender.SendReaction(ctx, msgContext.Message.Recipient, msgContext.Message.MessageID, "🚫")
-		if err != nil {
-			h.logger.Warn("Failed to send permission denied reaction", map[string]interface{}{
-				"error":     err.Error(),
-				"command":   msgContext.Command,
-				"sender":    msgContext.Message.Sender,
-				"messageID": msgContext.Message.MessageID,
-			})
-		}
-
-		// Create user-friendly permission denied message using simplified error handling
-		permissionMsg := h.createPermissionDeniedMessage(msgContext)
-
-		// Send permission denied message
-		err = h.messageSender.SendText(ctx, msgContext.Message.Recipient, permissionMsg)
-		if err != nil {
-			h.logger.Warn("Failed to send permission denied message", map[string]interface{}{
-				"error":     err.Error(),
-				"command":   msgContext.Command,
-				"sender":    msgContext.Message.Sender,
-				"messageID": msgContext.Message.MessageID,
-			})
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to track permission denied handling: %w", err)
-	}
+	permissionMsg := h.createPermissionDeniedMessage(msg.IsGroup, command, result.Reason)
+	_ = h.messageSender.SendText(ctx, msg.Recipient, permissionMsg)
 
 	return ErrPermissionDenied
 }
 
-func (h *CommandHandler) createPermissionDeniedMessage(msgContext *auth.MessageContext) string {
-	reason := msgContext.GetPermissionReason()
-	cmdName := msgContext.Command
-	userRank := msgContext.GetUserRank()
-	isGroup := msgContext.IsGroupMessage()
-
-	// Use simplified error handling based on common error patterns
-	if isGroup {
-		if strings.Contains(reason, "user not registered") || strings.Contains(reason, "user not found") {
-			return "You need to be registered to use bot commands in this group. Please contact an administrator."
-		} else if strings.Contains(reason, "group not registered") {
-			return "This group is not registered for bot usage. Please contact an administrator to register the group."
-		} else if strings.Contains(reason, "insufficient rank") || strings.Contains(reason, "insufficient permissions") {
-			if userRank != "" {
-				return fmt.Sprintf("You don't have sufficient permissions to use the '%s' command. Your rank: %s", cmdName, userRank)
-			}
-
-			return fmt.Sprintf("You don't have sufficient permissions to use the '%s' command.", cmdName)
-		} else if strings.Contains(reason, "admin required") || strings.Contains(reason, "whatsapp admin") {
-			return fmt.Sprintf("The '%s' command requires WhatsApp admin privileges in this group.", cmdName)
-		} else if strings.Contains(reason, "command not allowed") || strings.Contains(reason, "invalid command") {
-			return fmt.Sprintf("The '%s' command is not available for your rank.", cmdName)
-		} else {
-			return fmt.Sprintf("You don't have permission to use the '%s' command: %s", cmdName, reason)
+func (h *CommandHandler) createPermissionDeniedMessage(isGroup bool, command, reason string) string {
+	switch reason {
+	case "User not registered":
+		if isGroup {
+			return "You must be a registered user to use commands in this group. Please contact an admin."
 		}
-	} else {
-		if strings.Contains(reason, "user not registered") || strings.Contains(reason, "user not found") {
-			return "You need to be registered to use bot commands. Please contact an administrator."
-		} else if strings.Contains(reason, "insufficient rank") || strings.Contains(reason, "insufficient permissions") {
-			return fmt.Sprintf("You don't have sufficient permissions to use the '%s' command.", cmdName)
-		} else if strings.Contains(reason, "command not allowed") || strings.Contains(reason, "invalid command") {
-			return fmt.Sprintf("The '%s' command is not available for your rank.", cmdName)
-		} else {
-			return fmt.Sprintf("You don't have permission to use the '%s' command: %s", cmdName, reason)
-		}
+
+		return "You must be a registered user to use commands. Please contact an admin."
+	case "Group not registered":
+		return "This group is not registered for bot usage. Please contact an admin."
+	case "Command not allowed for your rank":
+		return fmt.Sprintf("The command `!%s` is not available for your rank.", command)
+	default:
+		return fmt.Sprintf("You do not have permission to use the `!%s` command.", command)
 	}
 }
