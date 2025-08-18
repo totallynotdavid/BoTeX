@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"fmt"
 )
 
 const schema = `
@@ -51,12 +52,12 @@ INSERT OR IGNORE INTO ranks (name, level, commands, description) VALUES
 func InitSchema(ctx context.Context, database *sql.DB) error {
 	_, err := database.ExecContext(ctx, schema)
 	if err != nil {
-		return err
+		return fmt.Errorf("exec schema: %w", err)
 	}
 
 	_, err = database.ExecContext(ctx, defaultRanksData)
 	if err != nil {
-		return err
+		return fmt.Errorf("insert default ranks: %w", err)
 	}
 
 	return nil
