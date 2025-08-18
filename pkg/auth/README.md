@@ -73,7 +73,7 @@ fmt.Println(result.Allowed, result.Reason)
 // or false, "Command not allowed for your rank"
 ```
 
-**RegisterUser(ctx, userID, rank, registeredBy)** -> `error`:Adds new authorized user:
+**RegisterUser(ctx, userID, rank, registeredBy)** -> `error`: Adds new authorized user:
 
 Example usage:
 
