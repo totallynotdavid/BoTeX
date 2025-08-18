@@ -1,2 +1,26 @@
 [tools]
 go = "1.25.0"
+
+[tasks.dev]
+description = "Run the app locally"
+run = "go run ."
+
+# [tasks.test]
+# description = "Run tests"
+# run = "go test ./..."
+
+[tasks.build]
+description = "Build the app"
+run = "go build"
+
+[tasks.lint]
+description = "Format & lint"
+run = [
+    "golangci-lint config verify",
+    "golangci-lint fmt",
+    "golangci-lint run --fix"
+]
+
+# [tasks.ci]
+# description = "Run all CI tasks"
+# depends = ["build", "lint", "test"]
