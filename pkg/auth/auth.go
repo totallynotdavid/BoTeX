@@ -15,6 +15,6 @@ type Auth interface {
 	ListRanks(ctx context.Context) ([]*Rank, error)
 }
 
-func New(db *sql.DB) Auth {
+func New(db *sql.DB) *Service {
 	return NewService(db)
 }
