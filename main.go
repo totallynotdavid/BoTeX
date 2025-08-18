@@ -2,44 +2,147 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"botex/pkg/auth"
 	"botex/pkg/commands"
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/timing"
-	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdp/qrterminal/v3"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 )
 
+const (
+	maxOpenConns    = 25
+	maxIdleConns    = 5
+	connMaxLifetime = 3600 // seconds
+	connMaxIdleTime = 1800 // seconds
+)
+
 var ErrQRLoginTimeout = errors.New("QR login timed out")
 
 type Bot struct {
-	client          *whatsmeow.Client
-	commandHandler  *commands.CommandHandler
-	config          *config.Config
-	logger          *logger.Logger
-	loggerFactory   *logger.Factory
-	shutdownSignals chan os.Signal
+	client         *whatsmeow.Client
+	commandHandler *commands.CommandHandler
+	config         *config.Config
+	logger         *logger.Logger
+	loggerFactory  *logger.Factory
+	shutdownSignal chan os.Signal
+	authService    auth.Auth
+	db             *sql.DB
 }
 
 func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 	appLogger := loggerFactory.GetLogger("bot")
 
+	database, err := setupDatabase(cfg, appLogger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup database: %w", err)
+	}
+
+	var successfulInit bool
+
+	defer func() {
+		if !successfulInit {
+			closeErr := database.Close()
+			if closeErr != nil {
+				appLogger.Error("Failed to close database during cleanup", map[string]interface{}{
+					"error": closeErr.Error(),
+				})
+			}
+		}
+	}()
+
+	ctx := context.Background()
+
+	appLogger.Info("Initializing database schema", nil)
+
+	err = auth.InitSchema(ctx, database)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize database schema: %w", err)
+	}
+
+	appLogger.Info("Database schema initialization completed", nil)
+
+	client, err := setupWhatsAppClient(cfg, loggerFactory)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup WhatsApp client: %w", err)
+	}
+
+	authService := auth.New(database)
+
+	commandHandler, err := setupCommands(client, cfg, loggerFactory, authService)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup commands: %w", err)
+	}
+
+	successfulInit = true
+
+	return &Bot{
+		client:         client,
+		commandHandler: commandHandler,
+		config:         cfg,
+		logger:         appLogger,
+		loggerFactory:  loggerFactory,
+		shutdownSignal: make(chan os.Signal, 1),
+		authService:    authService,
+		db:             database,
+	}, nil
+}
+
+func setupDatabase(cfg *config.Config, appLogger *logger.Logger) (*sql.DB, error) {
+	dbPath := cfg.DBPath
+
+	appLogger.Info("Opening database connection", map[string]interface{}{
+		"path": dbPath,
+	})
+
+	database, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	database.SetMaxOpenConns(maxOpenConns)
+	database.SetMaxIdleConns(maxIdleConns)
+	database.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
+	database.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
+
+	err = database.PingContext(context.Background())
+	if err != nil {
+		closeErr := database.Close()
+		if closeErr != nil {
+			appLogger.Error("Failed to close database after ping failure", map[string]interface{}{
+				"error": closeErr.Error(),
+			})
+		}
+
+		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	appLogger.Info("Database connection established", nil)
+
+	return database, nil
+}
+
+func setupWhatsAppClient(cfg *config.Config, loggerFactory *logger.Factory) (*whatsmeow.Client, error) {
+	dbPath := cfg.DBPath
+
 	dbLog := loggerFactory.CreateWhatsmeowLogger("Database", cfg.Logging.Level.String())
 	clientLog := loggerFactory.CreateWhatsmeowLogger("Client", cfg.Logging.Level.String())
 
-	container, err := sqlstore.New(context.Background(), "sqlite3", cfg.DBPath, dbLog)
+	container, err := sqlstore.New(context.Background(), "sqlite3", dbPath, dbLog)
 	if err != nil {
-		return nil, fmt.Errorf("database initialization failed: %w", err)
+		return nil, fmt.Errorf("whatsmeow sqlstore initialization failed: %w", err)
 	}
 
 	deviceStore, err := container.GetFirstDevice(context.Background())
@@ -49,6 +152,10 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 
+	return client, nil
+}
+
+func setupCommands(client *whatsmeow.Client, cfg *config.Config, loggerFactory *logger.Factory, authService auth.Auth) (*commands.CommandHandler, error) {
 	registry := commands.NewCommandRegistry(loggerFactory)
 
 	timeLogger := loggerFactory.GetLogger("timing")
@@ -60,21 +167,14 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 	registry.Register(helpCmd)
 	registry.Register(latexCmd)
 
-	commandHandler, err := commands.NewCommandHandler(client, cfg, registry, loggerFactory)
+	commandHandler, err := commands.NewCommandHandler(client, cfg, registry, loggerFactory, authService)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create command handler: %w", err)
 	}
 
 	helpCmd.SetHandler(commandHandler)
 
-	return &Bot{
-		client:          client,
-		commandHandler:  commandHandler,
-		config:          cfg,
-		logger:          appLogger,
-		loggerFactory:   loggerFactory,
-		shutdownSignals: make(chan os.Signal, 1),
-	}, nil
+	return commandHandler, nil
 }
 
 func (b *Bot) Start() error {
@@ -95,10 +195,21 @@ func (b *Bot) Start() error {
 func (b *Bot) Shutdown() {
 	b.logger.Info("Initiating graceful shutdown", nil)
 
-	b.commandHandler.Close()
+	if b.commandHandler != nil {
+		b.commandHandler.Close()
+	}
 
-	if b.client.IsConnected() {
+	if b.client != nil && b.client.IsConnected() {
 		b.client.Disconnect()
+	}
+
+	if b.db != nil {
+		err := b.db.Close()
+		if err != nil {
+			b.logger.Error("Error closing database connection", map[string]interface{}{
+				"error": err.Error(),
+			})
+		}
 	}
 
 	b.logger.Info("Shutdown complete", nil)
@@ -108,7 +219,7 @@ func (b *Bot) Shutdown() {
 		log.Printf("Error closing logger factory: %v", err)
 	}
 
-	close(b.shutdownSignals)
+	close(b.shutdownSignal)
 }
 
 func (b *Bot) handleQRLogin() error {
@@ -147,22 +258,15 @@ func (b *Bot) connect() error {
 	return nil
 }
 
-func run() error {
-	err := godotenv.Load()
+func main() {
+	cfg, err := config.Load()
 	if err != nil {
-		log.Printf("Error loading .env file: %v", err)
-	}
-
-	cfg := config.Load()
-
-	err = cfg.Validate()
-	if err != nil {
-		return fmt.Errorf("invalid configuration: %w", err)
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
 	loggerFactory, err := logger.NewFactory(cfg.Logging)
 	if err != nil {
-		return fmt.Errorf("failed to create logger factory: %w", err)
+		log.Fatalf("Failed to create logger factory: %v", err)
 	}
 
 	defer func() {
@@ -174,25 +278,20 @@ func run() error {
 
 	bot, err := NewBot(cfg, loggerFactory)
 	if err != nil {
-		return fmt.Errorf("failed to initialize bot: %w", err)
+		log.Printf("Failed to initialize bot: %v", err)
+
+		return
 	}
 
 	err = bot.Start()
 	if err != nil {
-		return fmt.Errorf("failed to start bot: %w", err)
+		log.Printf("Failed to start bot: %v", err)
+
+		return
 	}
 
-	signal.Notify(bot.shutdownSignals, os.Interrupt, syscall.SIGTERM)
-	<-bot.shutdownSignals
+	signal.Notify(bot.shutdownSignal, os.Interrupt, syscall.SIGTERM)
+	<-bot.shutdownSignal
+
 	bot.Shutdown()
-
-	return nil
-}
-
-func main() {
-	err := run()
-	if err != nil {
-		log.Printf("Error: %v", err)
-		os.Exit(1)
-	}
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"botex/pkg/auth"
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/message"
@@ -25,6 +26,7 @@ var (
 	ErrTooManyConcurrent   = errors.New("too many concurrent commands")
 	ErrCommandNotFound     = errors.New("command not found")
 	ErrInvalidCommandInput = errors.New("invalid command input")
+	ErrPermissionDenied    = errors.New("permission denied")
 )
 
 type Command interface {
@@ -64,21 +66,25 @@ type CommandHandler struct {
 	rateService   *ratelimit.RateLimitService
 	semaphore     chan struct{}
 	timeTracker   *timing.Tracker
+	authService   auth.Auth
 }
 
-func NewCommandHandler(client *whatsmeow.Client, cfg *config.Config, registry *CommandRegistry, loggerFactory *logger.Factory) (*CommandHandler, error) {
+func NewCommandHandler(client *whatsmeow.Client, cfg *config.Config, registry *CommandRegistry, loggerFactory *logger.Factory, authService auth.Auth) (*CommandHandler, error) {
 	cmdLogger := loggerFactory.GetLogger("command-handler")
 
 	limiter := ratelimit.NewLimiter(
 		cfg.RateLimit.Requests,
 		cfg.RateLimit.Period,
 	)
+
 	notifier := ratelimit.NewNotifier(
 		cfg.RateLimit.NotificationCooldown,
 	)
+
 	cleaner := ratelimit.NewAutoCleaner(
 		cfg.RateLimit.CleanupInterval,
 	)
+
 	rateService := ratelimit.NewRateLimitService(
 		limiter,
 		notifier,
@@ -102,6 +108,7 @@ func NewCommandHandler(client *whatsmeow.Client, cfg *config.Config, registry *C
 		rateService:   rateService,
 		semaphore:     make(chan struct{}, cfg.MaxConcurrent),
 		timeTracker:   timeTracker,
+		authService:   authService,
 	}
 
 	for _, cmd := range registry.commands {
@@ -125,96 +132,112 @@ func (h *CommandHandler) Close() {
 }
 
 func (h *CommandHandler) HandleEvent(evt interface{}) {
-	msgEvent, ok := evt.(*events.Message)
-	if !ok {
+	msgEvent, isMessage := evt.(*events.Message)
+	if !isMessage {
 		return
 	}
 
 	msg := message.NewMessage(msgEvent)
 
+	command, hasCommand := h.extractCommand(msg)
+	if !hasCommand {
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), defaultCommandTimeout)
 	defer cancel()
 
-	err := h.timeTracker.Track(ctx, "handle_message", timing.Basic, func(ctx context.Context) error {
-		cmdName, args, isCommand := h.parseCommand(msg.GetText())
-		if !isCommand {
-			return nil
-		}
+	if !h.checkPermission(ctx, msg, command) {
+		return
+	}
 
-		ctx = timing.WithOperation(ctx, "command:"+cmdName)
+	h.processCommand(ctx, msg, command)
+}
 
-		var rateLimitErr error
+func (h *CommandHandler) extractCommand(msg *message.Message) (string, bool) {
+	text := msg.GetText()
+	if !strings.HasPrefix(text, "!") {
+		return "", false
+	}
 
-		trackSubOpErr := h.timeTracker.TrackSubOperation(ctx, "check_rate_limit", func(ctx context.Context) error {
-			rateLimitErr = h.rateService.Check(ctx, msg)
+	parts := strings.Fields(text[1:])
+	if len(parts) == 0 {
+		return "", false
+	}
 
-			return nil
+	if len(parts) > 1 {
+		msg.Text = strings.Join(parts[1:], " ")
+	} else {
+		msg.Text = ""
+	}
+
+	return parts[0], true
+}
+
+func (h *CommandHandler) checkPermission(ctx context.Context, msg *message.Message, command string) bool {
+	userID := msg.Sender.String()
+
+	groupID := ""
+	if msg.IsGroup {
+		groupID = msg.GroupID.String()
+	}
+
+	permissionResult, err := h.authService.CheckPermission(ctx, userID, groupID, command)
+	if err != nil {
+		h.logger.Error("Permission check failed", map[string]interface{}{
+			"command":  command,
+			"sender":   userID,
+			"group_id": groupID,
+			"error":    err.Error(),
 		})
-		if trackSubOpErr != nil {
-			h.logger.Error("Failed to track rate limit check", map[string]interface{}{
-				"error": trackSubOpErr.Error(),
-			})
-		}
 
+		return false
+	}
+
+	if !permissionResult.Allowed {
+		h.logger.Info("Command permission denied", map[string]interface{}{
+			"command":   command,
+			"sender":    userID,
+			"reason":    permissionResult.Reason,
+			"user_rank": permissionResult.UserRank,
+		})
+		h.handlePermissionDenied(ctx, msg, command, permissionResult)
+
+		return false
+	}
+
+	return true
+}
+
+func (h *CommandHandler) processCommand(ctx context.Context, msg *message.Message, command string) {
+	err := h.timeTracker.Track(ctx, "handle_command", timing.Basic, func(ctx context.Context) error {
+		rateLimitErr := h.rateService.Check(ctx, msg)
 		if rateLimitErr != nil {
 			h.handleRateLimitError(ctx, msg, rateLimitErr)
 
 			return nil
 		}
 
-		var (
-			release func()
-			semErr  error
-		)
-
-		trackSubOpErr = h.timeTracker.TrackSubOperation(ctx, "acquire_semaphore", func(ctx context.Context) error {
-			release, semErr = h.acquireSemaphore(ctx)
-
-			return nil
-		})
-		if trackSubOpErr != nil {
-			h.logger.Error("Failed to track semaphore acquisition", map[string]interface{}{
-				"error": trackSubOpErr.Error(),
-			})
-		}
-
+		release, semErr := h.acquireSemaphore(ctx)
 		if semErr != nil {
 			h.logger.Warn("Concurrency limit exceeded", map[string]interface{}{
 				"sender": msg.Sender,
-				"error":  semErr.Error(),
 			})
+			h.handleConcurrencyLimit(ctx, msg)
 
-			return h.handleConcurrencyLimit(ctx, msg)
+			return nil
 		}
-
 		defer release()
 
-		msg.Text = args
-
-		return h.executeCommand(ctx, cmdName, msg)
+		return h.executeCommand(ctx, msg, command)
 	})
 	if err != nil {
-		h.logger.Error("Failed to track message handling", map[string]interface{}{
-			"error": err.Error(),
+		h.logger.Error("Failed to track command handling", map[string]interface{}{
+			"command": command,
+			"sender":  msg.Sender,
+			"error":   err.Error(),
 		})
 	}
-}
-
-func (h *CommandHandler) parseCommand(text string) (cmdName, args string, ok bool) {
-	if !strings.HasPrefix(text, "!") {
-		return
-	}
-
-	parts := strings.Fields(text[1:])
-	if len(parts) == 0 {
-		return
-	}
-
-	cmdName = parts[0]
-	args = strings.Join(parts[1:], " ")
-	ok = true
-
-	return
 }
 
 func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.Message, err error) {
@@ -228,37 +251,18 @@ func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.
 		return
 	}
 
-	trackErr := h.timeTracker.TrackSubOperation(ctx, "handle_rate_limit", func(ctx context.Context) error {
-		var err error
+	reactionErr := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
+	if reactionErr != nil {
+		h.logger.Error("Failed to send rate limit reaction", map[string]interface{}{"error": reactionErr.Error()})
+	}
 
-		err = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
-		if err != nil {
-			h.logger.Error("Failed to send rate limit reaction", map[string]interface{}{
-				"error":     err.Error(),
-				"sender":    msg.Sender,
-				"messageID": msg.MessageID,
-			})
+	if rateErr.Notify {
+		waitMsg := fmt.Sprintf("Too many requests. Please wait %d seconds.", int(rateErr.ResetAfter.Seconds()))
+
+		textErr := h.messageSender.SendText(ctx, msg.Recipient, waitMsg)
+		if textErr != nil {
+			h.logger.Error("Failed to send rate limit message", map[string]interface{}{"error": textErr.Error()})
 		}
-
-		if rateErr.Notify {
-			waitMsg := fmt.Sprintf("Too many requests. Please wait %d seconds.", int(rateErr.ResetAfter.Seconds()))
-
-			err = h.messageSender.SendText(ctx, msg.Recipient, waitMsg)
-			if err != nil {
-				h.logger.Error("Failed to send rate limit wait message", map[string]interface{}{
-					"error":     err.Error(),
-					"sender":    msg.Sender,
-					"messageID": msg.MessageID,
-				})
-			}
-		}
-
-		return nil
-	})
-	if trackErr != nil {
-		h.logger.Error("Failed to track rate limit handling", map[string]interface{}{
-			"error": trackErr.Error(),
-		})
 	}
 }
 
@@ -273,80 +277,32 @@ func (h *CommandHandler) acquireSemaphore(ctx context.Context) (func(), error) {
 	}
 }
 
-func (h *CommandHandler) sendErrorReaction(ctx context.Context, msg *message.Message, cmdName string) error {
-	err := h.timeTracker.TrackSubOperation(ctx, "send_error_reaction", func(ctx context.Context) error {
-		err := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "❌")
-		if err != nil {
-			h.logger.Error("Failed to send error reaction", map[string]interface{}{
-				"error":     err.Error(),
-				"command":   cmdName,
-				"sender":    msg.Sender,
-				"messageID": msg.MessageID,
-			})
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to track error reaction: %w", err)
-	}
-
-	return nil
-}
-
-func (h *CommandHandler) sendSuccessReaction(ctx context.Context, msg *message.Message, cmdName string) error {
-	err := h.timeTracker.TrackSubOperation(ctx, "send_success_reaction", func(ctx context.Context) error {
-		err := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "✅")
-		if err != nil {
-			h.logger.Error("Failed to send success reaction", map[string]interface{}{
-				"error":     err.Error(),
-				"command":   cmdName,
-				"sender":    msg.Sender,
-				"messageID": msg.MessageID,
-			})
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to track success reaction: %w", err)
-	}
-
-	return nil
-}
-
-func (h *CommandHandler) executeCommand(ctx context.Context, cmdName string, msg *message.Message) error {
-	cmd, exists := h.commands[cmdName]
+func (h *CommandHandler) executeCommand(ctx context.Context, msg *message.Message, command string) error {
+	cmd, exists := h.commands[command]
 	if !exists {
-		return fmt.Errorf("%w: %q", ErrCommandNotFound, cmdName)
+		return fmt.Errorf("%w: %q", ErrCommandNotFound, command)
 	}
 
-	err := h.timeTracker.TrackCommand(ctx, cmdName, func(ctx context.Context) error {
-		var err error
-
-		err = cmd.Handle(ctx, msg)
+	err := h.timeTracker.TrackCommand(ctx, command, func(ctx context.Context) error {
+		err := cmd.Handle(ctx, msg)
 		if err != nil {
 			h.logger.Error("Command execution failed", map[string]interface{}{
-				"command": cmdName,
+				"command": command,
 				"sender":  msg.Sender,
 				"error":   err.Error(),
 			})
 
-			err = h.sendErrorReaction(ctx, msg, cmdName)
-			if err != nil {
-				h.logger.Error("Failed to track error reaction", map[string]interface{}{
-					"error": err.Error(),
-				})
+			reactionErr := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "❌")
+			if reactionErr != nil {
+				h.logger.Error("Failed to send error reaction", map[string]interface{}{"error": reactionErr.Error()})
 			}
 
-			return fmt.Errorf("command %q execution failed: %w", cmdName, err)
+			return fmt.Errorf("command %q execution failed: %w", command, err)
 		}
 
-		err = h.sendSuccessReaction(ctx, msg, cmdName)
-		if err != nil {
-			h.logger.Error("Failed to track success reaction", map[string]interface{}{
-				"error": err.Error(),
-			})
+		reactionErr := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "✅")
+		if reactionErr != nil {
+			h.logger.Error("Failed to send success reaction", map[string]interface{}{"error": reactionErr.Error()})
 		}
 
 		return nil
@@ -358,33 +314,45 @@ func (h *CommandHandler) executeCommand(ctx context.Context, cmdName string, msg
 	return nil
 }
 
-func (h *CommandHandler) handleConcurrencyLimit(ctx context.Context, msg *message.Message) error {
-	err := h.timeTracker.TrackSubOperation(ctx, "handle_concurrency_limit", func(ctx context.Context) error {
-		var err error
-
-		err = h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
-		if err != nil {
-			h.logger.Warn("Failed to send concurrency reaction", map[string]interface{}{
-				"error":     err.Error(),
-				"sender":    msg.Sender,
-				"messageID": msg.MessageID,
-			})
-		}
-
-		err = h.messageSender.SendText(ctx, msg.Recipient, concurrentLimitMsg)
-		if err != nil {
-			h.logger.Warn("Failed to send concurrency message", map[string]interface{}{
-				"error":     err.Error(),
-				"sender":    msg.Sender,
-				"messageID": msg.MessageID,
-			})
-		}
-
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("failed to track concurrency limit handling: %w", err)
+func (h *CommandHandler) handleConcurrencyLimit(ctx context.Context, msg *message.Message) {
+	reactionErr := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
+	if reactionErr != nil {
+		h.logger.Error("Failed to send concurrency limit reaction", map[string]interface{}{"error": reactionErr.Error()})
 	}
 
-	return nil
+	textErr := h.messageSender.SendText(ctx, msg.Recipient, concurrentLimitMsg)
+	if textErr != nil {
+		h.logger.Error("Failed to send concurrency limit message", map[string]interface{}{"error": textErr.Error()})
+	}
+}
+
+func (h *CommandHandler) handlePermissionDenied(ctx context.Context, msg *message.Message, command string, result *auth.PermissionResult) {
+	reactionErr := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "🚫")
+	if reactionErr != nil {
+		h.logger.Error("Failed to send permission denied reaction", map[string]interface{}{"error": reactionErr.Error()})
+	}
+
+	permissionMsg := h.createPermissionDeniedMessage(msg.IsGroup, command, result.Reason)
+
+	textErr := h.messageSender.SendText(ctx, msg.Recipient, permissionMsg)
+	if textErr != nil {
+		h.logger.Error("Failed to send permission denied message", map[string]interface{}{"error": textErr.Error()})
+	}
+}
+
+func (h *CommandHandler) createPermissionDeniedMessage(isGroup bool, command, reason string) string {
+	switch reason {
+	case "User not registered":
+		if isGroup {
+			return "You must be a registered user to use commands in this group. Please contact an admin."
+		}
+
+		return "You must be a registered user to use commands. Please contact an admin."
+	case "Group not registered":
+		return "This group is not registered for bot usage. Please contact an admin."
+	case "Command not allowed for your rank":
+		return fmt.Sprintf("The command `!%s` is not available for your rank.", command)
+	default:
+		return fmt.Sprintf("You do not have permission to use the `!%s` command.", command)
+	}
 }
