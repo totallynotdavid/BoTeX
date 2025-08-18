@@ -123,7 +123,8 @@ func (r *Repository) ListRanks(ctx context.Context) ([]*Rank, error) {
 		ranks = append(ranks, &rank)
 	}
 
-	if err := rows.Err(); err != nil {
+	err = rows.Err()
+	if err != nil {
 		return nil, fmt.Errorf("error iterating ranks: %w", err)
 	}
 
