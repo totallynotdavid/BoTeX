@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 )
 
 type Repository struct {
@@ -32,7 +33,7 @@ func (r *Repository) GetUser(ctx context.Context, userID string) (*User, error) 
 			return nil, ErrUserNotFound
 		}
 
-		return nil, err
+		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
 	if registeredBy.Valid {
@@ -47,8 +48,11 @@ func (r *Repository) CreateUser(ctx context.Context, userID, rank, registeredBy 
 			  VALUES (?, ?, ?, 1)`
 
 	_, err := r.db.ExecContext(ctx, query, userID, rank, registeredBy)
+	if err != nil {
+		return fmt.Errorf("failed to create user: %w", err)
+	}
 
-	return err
+	return nil
 }
 
 func (r *Repository) UserExists(ctx context.Context, userID string) (bool, error) {
@@ -57,13 +61,12 @@ func (r *Repository) UserExists(ctx context.Context, userID string) (bool, error
 	var exists int
 
 	err := r.db.QueryRowContext(ctx, query, userID).Scan(&exists)
-
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to check user existence: %w", err)
 	}
 
 	return true, nil
@@ -86,7 +89,7 @@ func (r *Repository) GetRank(ctx context.Context, name string) (*Rank, error) {
 			return nil, ErrRankNotFound
 		}
 
-		return nil, err
+		return nil, fmt.Errorf("failed to get rank: %w", err)
 	}
 
 	rank.Commands = ParseCommands(commandsRaw)
@@ -99,8 +102,9 @@ func (r *Repository) ListRanks(ctx context.Context) ([]*Rank, error) {
 
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to list ranks: %w", err)
 	}
+
 	defer rows.Close()
 
 	var ranks []*Rank
@@ -112,14 +116,18 @@ func (r *Repository) ListRanks(ctx context.Context) ([]*Rank, error) {
 
 		err := rows.Scan(&rank.Name, &rank.Level, &commandsRaw)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to scan rank: %w", err)
 		}
 
 		rank.Commands = ParseCommands(commandsRaw)
 		ranks = append(ranks, &rank)
 	}
 
-	return ranks, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating ranks: %w", err)
+	}
+
+	return ranks, nil
 }
 
 // group operations.
@@ -137,7 +145,7 @@ func (r *Repository) GetGroup(ctx context.Context, groupID string) (*Group, erro
 			return nil, ErrGroupNotRegistered
 		}
 
-		return nil, err
+		return nil, fmt.Errorf("failed to get group: %w", err)
 	}
 
 	return &group, nil
@@ -148,8 +156,11 @@ func (r *Repository) CreateGroup(ctx context.Context, groupID, registeredBy stri
 			  VALUES (?, ?, 1)`
 
 	_, err := r.db.ExecContext(ctx, query, groupID, registeredBy)
+	if err != nil {
+		return fmt.Errorf("failed to create group: %w", err)
+	}
 
-	return err
+	return nil
 }
 
 func (r *Repository) GroupExists(ctx context.Context, groupID string) (bool, error) {
@@ -158,13 +169,12 @@ func (r *Repository) GroupExists(ctx context.Context, groupID string) (bool, err
 	var exists int
 
 	err := r.db.QueryRowContext(ctx, query, groupID).Scan(&exists)
-
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to check group existence: %w", err)
 	}
 
 	return true, nil

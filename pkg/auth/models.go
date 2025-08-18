@@ -8,8 +8,8 @@ import (
 type User struct {
 	ID           string    `json:"id"`
 	Rank         string    `json:"rank"`
-	RegisteredAt time.Time `json:"registered_at"`
-	RegisteredBy string    `json:"registered_by"`
+	RegisteredAt time.Time `json:"registeredAt"`
+	RegisteredBy string    `json:"registeredBy"`
 }
 
 type Rank struct {
@@ -20,14 +20,14 @@ type Rank struct {
 
 type Group struct {
 	ID           string    `json:"id"`
-	RegisteredAt time.Time `json:"registered_at"`
-	RegisteredBy string    `json:"registered_by"`
+	RegisteredAt time.Time `json:"registeredAt"`
+	RegisteredBy string    `json:"registeredBy"`
 }
 
 type PermissionResult struct {
 	Allowed  bool   `json:"allowed"`
 	Reason   string `json:"reason"`
-	UserRank string `json:"user_rank,omitempty"`
+	UserRank string `json:"userRank,omitempty"`
 }
 
 // checks if rank has permission for command.
@@ -49,8 +49,8 @@ func ParseCommands(raw string) []string {
 	}
 
 	parts := strings.Split(raw, ",")
-	commands := make([]string, 0, len(parts))
 
+	commands := make([]string, 0, len(parts))
 	for _, part := range parts {
 		if cmd := strings.TrimSpace(part); cmd != "" {
 			commands = append(commands, cmd)

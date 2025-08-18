@@ -23,7 +23,7 @@ func ValidateRankName(name string) error {
 	return validateRankNameCharacters(name)
 }
 
-// helpers to avoid a cyclomatic complexity in the main validation functions
+// helpers to avoid a cyclomatic complexity in the main validation functions.
 func validateCommandLength(command string) error {
 	if command == "" {
 		return ErrInvalidInput

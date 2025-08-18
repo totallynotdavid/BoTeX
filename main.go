@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"botex/pkg/auth"
 	"botex/pkg/commands"
@@ -20,6 +21,13 @@ import (
 	"github.com/mdp/qrterminal/v3"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
+)
+
+const (
+	maxOpenConns    = 25
+	maxIdleConns    = 5
+	connMaxLifetime = 3600 // seconds
+	connMaxIdleTime = 1800 // seconds
 )
 
 var ErrQRLoginTimeout = errors.New("QR login timed out")
@@ -47,7 +55,12 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 
 	defer func() {
 		if !successfulInit {
-			_ = database.Close()
+			closeErr := database.Close()
+			if closeErr != nil {
+				appLogger.Error("Failed to close database during cleanup", map[string]interface{}{
+					"error": closeErr.Error(),
+				})
+			}
 		}
 	}()
 
@@ -87,13 +100,13 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 	}, nil
 }
 
-func setupDatabase(cfg *config.Config, logger *logger.Logger) (*sql.DB, error) {
+func setupDatabase(cfg *config.Config, appLogger *logger.Logger) (*sql.DB, error) {
 	dbPath := cfg.DBPath
 	if dbPath == "" {
 		dbPath = "file:botex.db?_foreign_keys=on&_journal_mode=WAL"
 	}
 
-	logger.Info("Opening database connection", map[string]interface{}{
+	appLogger.Info("Opening database connection", map[string]interface{}{
 		"path": dbPath,
 	})
 
@@ -102,18 +115,23 @@ func setupDatabase(cfg *config.Config, logger *logger.Logger) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	database.SetMaxOpenConns(25)
-	database.SetMaxIdleConns(5)
-	database.SetConnMaxLifetime(3600) // 1 hour
-	database.SetConnMaxIdleTime(1800) // 30 minutes
+	database.SetMaxOpenConns(maxOpenConns)
+	database.SetMaxIdleConns(maxIdleConns)
+	database.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
+	database.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
 
 	if err := database.PingContext(context.Background()); err != nil {
-		_ = database.Close()
+		closeErr := database.Close()
+		if closeErr != nil {
+			appLogger.Error("Failed to close database after ping failure", map[string]interface{}{
+				"error": closeErr.Error(),
+			})
+		}
 
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	logger.Info("Database connection established", nil)
+	appLogger.Info("Database connection established", nil)
 
 	return database, nil
 }
