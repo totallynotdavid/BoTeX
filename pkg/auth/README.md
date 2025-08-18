@@ -52,7 +52,9 @@ db, _ := sql.Open("sqlite3", "./bot.db")
 authService := auth.New(db)
 ```
 
-**CheckPermission(ctx, userID, groupID, command)** -> `(PermissionResult, error)`: Verifies if user can execute command in context:
+**CheckPermission(ctx, userID, groupID, command)** -> `(PermissionResult, error)`: Verifies if user can execute command in context.
+
+It follows this logic:
 
 1. Validates input
 2. Confirms user registration
