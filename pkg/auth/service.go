@@ -17,14 +17,6 @@ func NewService(db *sql.DB) *Service {
 }
 
 func (s *Service) CheckPermission(ctx context.Context, userID, groupID, command string) (*PermissionResult, error) {
-	if err := ValidateUserID(userID); err != nil {
-		return nil, err
-	}
-
-	if err := ValidateGroupID(groupID); err != nil {
-		return nil, err
-	}
-
 	if err := ValidateCommand(command); err != nil {
 		return nil, err
 	}
@@ -76,19 +68,8 @@ func (s *Service) CheckPermission(ctx context.Context, userID, groupID, command 
 }
 
 func (s *Service) RegisterUser(ctx context.Context, userID, rankName, registeredBy string) error {
-	if err := ValidateUserID(userID); err != nil {
-		return err
-	}
-
 	if err := ValidateRankName(rankName); err != nil {
 		return err
-	}
-
-	if registeredBy != "" {
-		err := ValidateUserID(registeredBy)
-		if err != nil {
-			return err
-		}
 	}
 
 	_, err := s.repo.GetRank(ctx, rankName)
@@ -96,7 +77,6 @@ func (s *Service) RegisterUser(ctx context.Context, userID, rankName, registered
 		if errors.Is(err, ErrRankNotFound) {
 			return ErrRankNotFound
 		}
-
 		return err
 	}
 
@@ -113,16 +93,8 @@ func (s *Service) RegisterUser(ctx context.Context, userID, rankName, registered
 }
 
 func (s *Service) RegisterGroup(ctx context.Context, groupID, registeredBy string) error {
-	if err := ValidateGroupID(groupID); err != nil {
-		return err
-	}
-
 	if groupID == "" {
 		return ErrInvalidInput
-	}
-
-	if err := ValidateUserID(registeredBy); err != nil {
-		return err
 	}
 
 	exists, err := s.repo.UserExists(ctx, registeredBy)
@@ -147,11 +119,6 @@ func (s *Service) RegisterGroup(ctx context.Context, groupID, registeredBy strin
 }
 
 func (s *Service) GetUser(ctx context.Context, userID string) (*User, error) {
-	err := ValidateUserID(userID)
-	if err != nil {
-		return nil, err
-	}
-
 	return s.repo.GetUser(ctx, userID)
 }
 
@@ -169,11 +136,6 @@ func (s *Service) ListRanks(ctx context.Context) ([]*Rank, error) {
 }
 
 func (s *Service) GetGroup(ctx context.Context, groupID string) (*Group, error) {
-	err := ValidateGroupID(groupID)
-	if err != nil {
-		return nil, err
-	}
-
 	if groupID == "" {
 		return nil, ErrInvalidInput
 	}
