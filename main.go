@@ -68,7 +68,8 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 
 	appLogger.Info("Initializing database schema", nil)
 
-	if err := auth.InitSchema(ctx, database); err != nil {
+	err = auth.InitSchema(ctx, database)
+	if err != nil {
 		return nil, fmt.Errorf("failed to initialize database schema: %w", err)
 	}
 
@@ -120,7 +121,8 @@ func setupDatabase(cfg *config.Config, appLogger *logger.Logger) (*sql.DB, error
 	database.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
 	database.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
 
-	if err := database.PingContext(context.Background()); err != nil {
+	err = database.PingContext(context.Background())
+	if err != nil {
 		closeErr := database.Close()
 		if closeErr != nil {
 			appLogger.Error("Failed to close database after ping failure", map[string]interface{}{
