@@ -17,8 +17,11 @@ func NewRepository(db *sql.DB) *Repository {
 
 // user operations.
 func (r *Repository) GetUser(ctx context.Context, userID string) (*User, error) {
-	query := `SELECT user_id, rank, registered_at, registered_by 
-			  FROM users WHERE user_id = ? AND active = 1`
+	query := `
+			SELECT user_id, rank, registered_at, registered_by 
+			FROM users 
+			WHERE user_id = ? AND active = 1
+	`
 
 	var (
 		user         User
