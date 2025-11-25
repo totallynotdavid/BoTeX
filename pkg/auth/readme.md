@@ -1,6 +1,8 @@
 # Auth
 
-The `auth` module handles authorization and permissions for the bot. The auth module uses the same SQL database as the whatsmeow module for data persistence. It makes sure that:
+The `auth` module handles authorization and permissions for the bot. The auth
+module uses the same SQL database as the whatsmeow module for data persistence.
+It makes sure that:
 
 - Only registered users can issue commands
 - Groups must be registered before responding to commands
@@ -17,7 +19,8 @@ The `auth` module handles authorization and permissions for the bot. The auth mo
 | `RegisteredAt` | `timestamp` | When the user was registered                       |
 | `RegisteredBy` | `string`    | ID of the user who registered this user            |
 
-**Group**: WhatsApp group where bot is active (unregistered groups ignore all commands except registration by admins):
+**Group**: WhatsApp group where bot is active (unregistered groups ignore all
+commands except registration by admins):
 
 | Field          | Type        | Description                              |
 | -------------- | ----------- | ---------------------------------------- |
@@ -41,7 +44,8 @@ The `auth` module handles authorization and permissions for the bot. The auth mo
 | `admin` | 10    | `help`, `latex`, `register_user`, `register_group` | Management access |
 | `user`  | 100   | `help`, `latex`                                    | Basic access      |
 
-Database tables (`users`, `ranks`, `registered_groups`) automatically created the first time the application starts.
+Database tables (`users`, `ranks`, `registered_groups`) automatically created
+the first time the application starts.
 
 ## API Reference
 
@@ -52,7 +56,8 @@ db, _ := sql.Open("sqlite3", "./bot.db")
 authService := auth.New(db)
 ```
 
-**CheckPermission(ctx, userID, groupID, command)** -> `(PermissionResult, error)`: Verifies if user can execute command in context.
+**CheckPermission(ctx, userID, groupID, command)** ->
+`(PermissionResult, error)`: Verifies if user can execute command in context.
 
 It follows this logic:
 
@@ -75,7 +80,8 @@ fmt.Println(result.Allowed, result.Reason)
 // or false, "Command not allowed for your rank"
 ```
 
-**RegisterUser(ctx, userID, rank, registeredBy)** -> `error`: Adds new authorized user.
+**RegisterUser(ctx, userID, rank, registeredBy)** -> `error`: Adds new
+authorized user.
 
 Example usage:
 
@@ -87,7 +93,8 @@ err := authService.RegisterUser(ctx,
 )
 ```
 
-**RegisterGroup(ctx, groupID, registeredBy)** -> `error`: Authorizes bot operation in group.
+**RegisterGroup(ctx, groupID, registeredBy)** -> `error`: Authorizes bot
+operation in group.
 
 Example usage:
 
