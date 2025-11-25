@@ -1,24 +1,29 @@
 [tools]
-go = "1.25.0"
+go = "1.25.4"
+golangci-lint = "2.6.2"
+
+[tasks.install]
+description = "Install Go dependencies"
+run = ["go mod download", "go mod tidy"]
 
 [tasks.dev]
-description = "Run the app locally"
+description = "Start the app locally"
 run = "go run ."
 
-# [tasks.test]
-# description = "Run tests"
-# run = "go test ./..."
+[tasks.test]
+description = "Run all tests"
+run = "go test ./..."
 
 [tasks.build]
-description = "Build the app"
+description = "Build the application"
 run = "go build"
 
 [tasks.lint]
-description = "Format & lint"
+description = "Format and lint the code"
 run = [
-    "golangci-lint config verify",
-    "golangci-lint fmt",
-    "golangci-lint run --fix"
+  "golangci-lint config verify",
+  "golangci-lint fmt",
+  "golangci-lint run --fix",
 ]
 
 # [tasks.ci]
