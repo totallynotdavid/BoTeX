@@ -23,10 +23,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: ["go"]
+        language: ["go", "actions"]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - uses: github/codeql-action/init@v4
         with:
