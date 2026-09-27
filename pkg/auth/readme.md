@@ -110,7 +110,9 @@ rank to every JID that doesn't already have a user record. Called on every
 startup with the JIDs from `BOTEX_OWNER_JIDS` so a fresh install has a working
 owner without manual SQL. It's idempotent (no duplicates on repeat calls) and
 never downgrades or changes an existing user's rank; JIDs that already belong to
-a user with a different rank come back in `Skipped`.
+an active user with a different rank come back in `Skipped`. A JID that belongs
+to a deactivated user is likewise left untouched and comes back in `Inactive`,
+since deactivation was someone's explicit choice.
 
 Example usage:
 
