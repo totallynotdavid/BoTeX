@@ -104,3 +104,16 @@ err := authService.RegisterGroup(ctx,
     "4445556666@s.whatsapp.net"
 )
 ```
+
+**SeedOwners(ctx, ownerJIDs)** -> `(*SeedOwnersResult, error)`: Grants the owner
+rank to every JID that doesn't already have a user record. Called on every
+startup with the JIDs from `BOTEX_OWNER_JIDS` so a fresh install has a working
+owner without manual SQL. It's idempotent (no duplicates on repeat calls) and
+never downgrades or changes an existing user's rank; JIDs that already belong to
+a user with a different rank come back in `Skipped`.
+
+Example usage:
+
+```go
+result, err := authService.SeedOwners(ctx, []string{"7778889999@s.whatsapp.net"})
+```

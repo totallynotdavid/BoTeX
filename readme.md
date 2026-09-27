@@ -65,6 +65,19 @@ the path or disable WAL mode with `BOTEX_DB_PATH` if needed.
 Performance tracking has three modes set via `BOTEX_TIMING_LEVEL`: disabled,
 basic (logs slow operations), or detailed (logs all operation timing).
 
+Set `BOTEX_OWNER_JIDS` to a comma-separated list of WhatsApp JIDs (for example
+`15551234567@s.whatsapp.net`) before first startup. Every JID listed there is
+granted the owner rank each time the bot starts, so there is no need to touch
+the database by hand to bootstrap a fresh install. Seeding is idempotent: it
+never creates duplicates, and it never downgrades or changes the rank of a user
+who is already registered with a different rank (a warning is logged instead). A
+malformed JID in `BOTEX_OWNER_JIDS` fails configuration loading with a clear
+error rather than being silently ignored.
+
+By default, the bot ignores messages sent from its own WhatsApp account so it
+cannot be triggered by its own replies. Set `BOTEX_PROCESS_OWN_MESSAGES=true` to
+let commands sent from the bot's own account run.
+
 ## Running
 
 Start the bot and scan the QR code when prompted:
@@ -73,20 +86,17 @@ Start the bot and scan the QR code when prompted:
 mise run dev
 ```
 
-The bot requires authentication before responding to commands. After first
-startup, register yourself as owner by adding your WhatsApp JID to the database.
-Your JID appears in logs when you send a message:
-
-```bash
-sqlite3 botex.db
-INSERT INTO users (id, rank, registered_at, registered_by)
-VALUES ('your_number@s.whatsapp.net', 'owner', datetime('now'), 'system');
-```
+The bot requires authentication before responding to commands. Once your
+WhatsApp JID is listed in `BOTEX_OWNER_JIDS`, it is registered with the owner
+rank automatically.
 
 The rank system has three levels: owner (full access), admin (user management),
-and user (basic commands). Groups must also be registered before the bot
-responds in them. See [pkg/auth/readme.md](pkg/auth/readme.md) for permission
-details.
+and user (basic commands), but only `help` and `latex` are wired up as chat
+commands today; there is no `!register_user` or `!register_group` command yet.
+To bring in further users or groups, insert directly into the `users` or
+`registered_groups` tables (see [pkg/auth/readme.md](pkg/auth/readme.md) for the
+schema and the `RegisterUser`/`RegisterGroup` API those tables back), or add
+more JIDs to `BOTEX_OWNER_JIDS` if they should also be owners.
 
 ## Usage
 
