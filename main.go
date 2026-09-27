@@ -28,6 +28,8 @@ const (
 	maxIdleConns    = 5
 	connMaxLifetime = 3600 // seconds
 	connMaxIdleTime = 1800 // seconds
+
+	fieldJID = "jid"
 )
 
 var ErrQRLoginTimeout = errors.New("QR login timed out")
@@ -82,19 +84,9 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 
 	authService := auth.New(database)
 
-	seedResult, err := authService.SeedOwners(ctx, cfg.Auth.OwnerJIDs)
+	err = seedOwners(ctx, authService, cfg.Auth.OwnerJIDs, appLogger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to seed owners: %w", err)
-	}
-
-	for _, jid := range seedResult.Created {
-		appLogger.Info("Seeded owner from config", map[string]any{"jid": jid})
-	}
-
-	for _, jid := range seedResult.Skipped {
-		appLogger.Warn("Owner JID from config already registered with a different rank; leaving unchanged", map[string]any{
-			"jid": jid,
-		})
 	}
 
 	commandHandler, err := setupCommands(client, cfg, loggerFactory, authService)
@@ -114,6 +106,31 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 		authService:    authService,
 		db:             database,
 	}, nil
+}
+
+func seedOwners(ctx context.Context, authService *auth.Service, ownerJIDs []string, appLogger *logger.Logger) error {
+	seedResult, err := authService.SeedOwners(ctx, ownerJIDs)
+	if err != nil {
+		return fmt.Errorf("failed to seed owners: %w", err)
+	}
+
+	for _, jid := range seedResult.Created {
+		appLogger.Info("Seeded owner from config", map[string]any{fieldJID: jid})
+	}
+
+	for _, jid := range seedResult.Skipped {
+		appLogger.Warn("Owner JID from config already registered with a different rank; leaving unchanged", map[string]any{
+			fieldJID: jid,
+		})
+	}
+
+	for _, jid := range seedResult.Inactive {
+		appLogger.Warn("Owner JID from config belongs to a deactivated user; leaving unchanged", map[string]any{
+			fieldJID: jid,
+		})
+	}
+
+	return nil
 }
 
 func setupDatabase(cfg *config.Config, appLogger *logger.Logger) (*sql.DB, error) {
