@@ -8,7 +8,6 @@ import (
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
-	"google.golang.org/protobuf/proto"
 )
 
 type MessageSender struct {
@@ -23,7 +22,7 @@ func NewMessageSender(client *whatsmeow.Client) *MessageSender {
 
 func (ms *MessageSender) SendText(ctx context.Context, recipient types.JID, text string) error {
 	_, err := ms.client.SendMessage(ctx, recipient, &waE2E.Message{
-		Conversation: proto.String(text),
+		Conversation: new(text),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to send text message: %w", err)
@@ -39,17 +38,17 @@ func (ms *MessageSender) SendImage(ctx context.Context, recipient types.JID, ima
 	}
 
 	imageMsg := &waE2E.ImageMessage{
-		Mimetype:      proto.String("image/jpeg"),
+		Mimetype:      new("image/jpeg"),
 		URL:           &resp.URL,
 		DirectPath:    &resp.DirectPath,
 		MediaKey:      resp.MediaKey,
 		FileEncSHA256: resp.FileEncSHA256,
 		FileSHA256:    resp.FileSHA256,
-		FileLength:    proto.Uint64(uint64(len(imageData))),
+		FileLength:    new(uint64(len(imageData))),
 	}
 
 	if caption != "" {
-		imageMsg.Caption = proto.String(caption)
+		imageMsg.Caption = new(caption)
 	}
 
 	_, err = ms.client.SendMessage(ctx, recipient, &waE2E.Message{
@@ -69,7 +68,7 @@ func (ms *MessageSender) SendSticker(ctx context.Context, recipient types.JID, s
 	}
 
 	stickerMsg := &waE2E.StickerMessage{
-		Mimetype:      proto.String("image/webp"),
+		Mimetype:      new("image/webp"),
 		URL:           &resp.URL,
 		DirectPath:    &resp.DirectPath,
 		MediaKey:      resp.MediaKey,
@@ -94,14 +93,14 @@ func (ms *MessageSender) SendDocument(ctx context.Context, recipient types.JID, 
 	}
 
 	documentMsg := &waE2E.DocumentMessage{
-		Mimetype:      proto.String(mimetype),
+		Mimetype:      new(mimetype),
 		URL:           &resp.URL,
 		DirectPath:    &resp.DirectPath,
 		MediaKey:      resp.MediaKey,
 		FileEncSHA256: resp.FileEncSHA256,
 		FileSHA256:    resp.FileSHA256,
-		FileName:      proto.String(filename),
-		FileLength:    proto.Uint64(uint64(len(documentData))),
+		FileName:      new(filename),
+		FileLength:    new(uint64(len(documentData))),
 	}
 
 	_, err = ms.client.SendMessage(ctx, recipient, &waE2E.Message{
@@ -121,17 +120,17 @@ func (ms *MessageSender) SendVideo(ctx context.Context, recipient types.JID, vid
 	}
 
 	videoMsg := &waE2E.VideoMessage{
-		Mimetype:      proto.String("video/mp4"),
+		Mimetype:      new("video/mp4"),
 		URL:           &resp.URL,
 		DirectPath:    &resp.DirectPath,
 		MediaKey:      resp.MediaKey,
 		FileEncSHA256: resp.FileEncSHA256,
 		FileSHA256:    resp.FileSHA256,
-		FileLength:    proto.Uint64(uint64(len(videoData))),
+		FileLength:    new(uint64(len(videoData))),
 	}
 
 	if caption != "" {
-		videoMsg.Caption = proto.String(caption)
+		videoMsg.Caption = new(caption)
 	}
 
 	_, err = ms.client.SendMessage(ctx, recipient, &waE2E.Message{
@@ -151,13 +150,13 @@ func (ms *MessageSender) SendAudio(ctx context.Context, recipient types.JID, aud
 	}
 
 	audioMsg := &waE2E.AudioMessage{
-		Mimetype:      proto.String("audio/mp4"),
+		Mimetype:      new("audio/mp4"),
 		URL:           &resp.URL,
 		DirectPath:    &resp.DirectPath,
 		MediaKey:      resp.MediaKey,
 		FileEncSHA256: resp.FileEncSHA256,
 		FileSHA256:    resp.FileSHA256,
-		FileLength:    proto.Uint64(uint64(len(audioData))),
+		FileLength:    new(uint64(len(audioData))),
 	}
 
 	_, err = ms.client.SendMessage(ctx, recipient, &waE2E.Message{
@@ -174,12 +173,12 @@ func (ms *MessageSender) SendReaction(ctx context.Context, recipient types.JID, 
 	_, err := ms.client.SendMessage(ctx, recipient, &waE2E.Message{
 		ReactionMessage: &waE2E.ReactionMessage{
 			Key: &waCommon.MessageKey{
-				RemoteJID:   proto.String(recipient.String()),
-				FromMe:      proto.Bool(true),
-				ID:          proto.String(messageID),
-				Participant: proto.String(recipient.String()),
+				RemoteJID:   new(recipient.String()),
+				FromMe:      new(true),
+				ID:          new(messageID),
+				Participant: new(recipient.String()),
 			},
-			Text: proto.String(emoji),
+			Text: new(emoji),
 		},
 	})
 	if err != nil {
