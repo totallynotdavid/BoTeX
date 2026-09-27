@@ -63,10 +63,11 @@ type Config struct {
 	CWebPPath    string
 
 	Auth struct {
-		DatabasePath        string
-		DefaultUserRank     string
-		EnableWhatsAppAdmin bool
-		ValidateSchema      bool
+		DatabasePath       string
+		DefaultUserRank    string
+		ProcessOwnMessages bool
+		ValidateSchema     bool
+		OwnerJIDs          []string
 	}
 }
 
@@ -96,18 +97,28 @@ func (e *envLoader) loadTiming() {
 	e.cfg.Timing.LogThreshold = util.GetEnvDuration("BOTEX_TIMING_THRESHOLD", DefaultTimingLogThreshold)
 }
 
-func (e *envLoader) loadAuth() {
+func (e *envLoader) loadAuth() error {
 	e.cfg.Auth.DatabasePath = util.GetEnv("BOTEX_AUTH_DB_PATH", e.cfg.DBPath)
 	e.cfg.Auth.DefaultUserRank = util.GetEnv("BOTEX_AUTH_DEFAULT_RANK", "basic")
-	e.cfg.Auth.EnableWhatsAppAdmin = util.GetEnvBool("BOTEX_AUTH_ENABLE_WHATSAPP_ADMIN", true)
+	e.cfg.Auth.ProcessOwnMessages = util.GetEnvBool("BOTEX_PROCESS_OWN_MESSAGES", false)
 	e.cfg.Auth.ValidateSchema = util.GetEnvBool("BOTEX_AUTH_VALIDATE_SCHEMA", true)
+
+	ownerJIDs, err := ParseOwnerJIDs(util.GetEnv("BOTEX_OWNER_JIDS", ""))
+	if err != nil {
+		return fmt.Errorf("BOTEX_OWNER_JIDS: %w", err)
+	}
+
+	e.cfg.Auth.OwnerJIDs = ownerJIDs
+
+	return nil
 }
 
-func (e *envLoader) loadAll() {
+func (e *envLoader) loadAll() error {
 	e.loadBasic()
 	e.loadRateLimit()
 	e.loadTiming()
-	e.loadAuth()
+
+	return e.loadAuth()
 }
 
 func Load() (*Config, error) {
@@ -121,7 +132,11 @@ func Load() (*Config, error) {
 	}
 
 	loader := &envLoader{cfg: cfg}
-	loader.loadAll()
+
+	err = loader.loadAll()
+	if err != nil {
+		return nil, fmt.Errorf("configuration validation failed: %w", err)
+	}
 
 	err = cfg.Validate()
 	if err != nil {
