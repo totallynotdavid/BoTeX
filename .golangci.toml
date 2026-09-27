@@ -11,10 +11,15 @@ version = "2"
     "wsl",
     "gochecknoinits",
     "exhaustruct",
+    "exhaustruct_v5",
     "nonamedreturns",
+    "gomodguard",
   ]
 
   [linters.settings]
+    [linters.settings.goconst]
+      ignore-string-values = ["^(error|sender|command|level)$"]
+
     [linters.settings.gocritic]
       enabled-tags = ["performance", "style", "experimental"]
       disabled-checks = ["hugeParam"]
@@ -48,8 +53,10 @@ version = "2"
 
 [formatters]
   enable = ["gofumpt", "goimports", "gci"]
+  [formatters.settings.gofumpt]
+    module-path = "botex"
   [formatters.settings.gci]
-    sections = ["standard", "default", "prefix(github.com/totallynotdavid/BoTeX)"]
+    sections = ["standard", "default", "prefix(botex)"]
 
 [run]
   timeout = "5m"
@@ -61,7 +68,7 @@ version = "2"
 [issues]
   max-issues-per-linter = 0
   max-same-issues = 0
-  fix = true
+  fix = false
 
 [severity]
   default = "error"
