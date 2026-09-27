@@ -10,11 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"go.mau.fi/whatsmeow"
+
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/message"
 	"botex/pkg/timing"
-	"go.mau.fi/whatsmeow"
 )
 
 const (
@@ -85,12 +86,12 @@ func (lc *LaTeXCommand) Info() CommandInfo {
 }
 
 func (lc *LaTeXCommand) Handle(ctx context.Context, msg *message.Message) error {
-	lc.logger.Info("LaTeX command received", map[string]interface{}{
+	lc.logger.Info("LaTeX command received", map[string]any{
 		"sender": msg.Sender,
 		"text":   msg.Text,
 	})
 
-	lc.logger.Debug("Starting LaTeX command timing", map[string]interface{}{
+	lc.logger.Debug("Starting LaTeX command timing", map[string]any{
 		"tracker": lc.timeTracker != nil,
 	})
 
@@ -110,7 +111,7 @@ func (lc *LaTeXCommand) initializeToolPaths() {
 			absPath, err := filepath.Abs(configPath)
 			if err != nil {
 				lc.logger.Error("Absolute path resolution failed",
-					map[string]interface{}{"path": configPath, "error": err.Error()})
+					map[string]any{"path": configPath, "error": err.Error()})
 
 				return lc.findExecutableInPath(defaultExecutable)
 			}
@@ -127,7 +128,7 @@ func (lc *LaTeXCommand) initializeToolPaths() {
 
 	verificationErr := lc.verifyToolExistence()
 	if verificationErr != nil {
-		lc.logger.Error("Tool verification failed", map[string]interface{}{"error": verificationErr.Error()})
+		lc.logger.Error("Tool verification failed", map[string]any{"error": verificationErr.Error()})
 	}
 }
 
@@ -135,7 +136,7 @@ func (lc *LaTeXCommand) findExecutableInPath(executableName string) string {
 	path, lookupErr := exec.LookPath(executableName)
 	if lookupErr != nil {
 		lc.logger.Warn("Executable not found in PATH",
-			map[string]interface{}{"executable": executableName})
+			map[string]any{"executable": executableName})
 
 		return executableName
 	}
@@ -279,7 +280,7 @@ func (renderCtx *RenderContext) cleanupResources() {
 	removeErr := os.RemoveAll(renderCtx.tempDirectory)
 	if removeErr != nil && renderCtx.logger != nil {
 		renderCtx.logger.Error("Temporary directory cleanup failed",
-			map[string]interface{}{
+			map[string]any{
 				"directory": renderCtx.tempDirectory,
 				"error":     removeErr.Error(),
 			})
@@ -297,12 +298,12 @@ func (lc *LaTeXCommand) executeSecuredCommand(
 		return fmt.Errorf("command validation failed: %w", validationErr)
 	}
 
-	command := exec.CommandContext(ctx, executablePath, arguments...)
+	command := exec.CommandContext(ctx, executablePath, arguments...) // #nosec G204 -- executablePath is validated above
 	startTime := time.Now()
 	output, execErr := command.CombinedOutput()
 	executionDuration := time.Since(startTime)
 
-	logData := map[string]interface{}{
+	logData := map[string]any{
 		"command":     command.String(),
 		"duration_ms": executionDuration.Milliseconds(),
 	}

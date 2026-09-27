@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"strings"
 
+	"go.mau.fi/whatsmeow"
+
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/message"
-	"go.mau.fi/whatsmeow"
 )
 
 const (
@@ -72,7 +73,7 @@ func (hc *HelpCommand) Handle(ctx context.Context, msg *message.Message) error {
 		if args == "" {
 			helpText = hc.generateGeneralHelp()
 		} else {
-			cmdName := strings.Split(args, " ")[0]
+			cmdName, _, _ := strings.Cut(args, " ")
 
 			var found bool
 
@@ -97,7 +98,7 @@ func (hc *HelpCommand) generateGeneralHelp() string {
 
 	for _, cmd := range hc.handler.GetCommands() {
 		if cmd.Name() != "help" {
-			builder.WriteString(fmt.Sprintf("• *%s* - %s\n", cmd.Name(), cmd.Info().Description))
+			fmt.Fprintf(&builder, "• *%s* - %s\n", cmd.Name(), cmd.Info().Description)
 		}
 	}
 
@@ -119,15 +120,17 @@ func (hc *HelpCommand) buildCommandDetails(cmd Command) string {
 	var builder strings.Builder
 
 	info := cmd.Info()
-	builder.WriteString(fmt.Sprintf(commandDetailsHeader, cmd.Name()))
+	fmt.Fprintf(&builder, commandDetailsHeader, cmd.Name())
 	builder.WriteString(info.Description + "\n\n")
-	builder.WriteString(fmt.Sprintf(usagePrefix, info.Usage))
+	fmt.Fprintf(&builder, usagePrefix, info.Usage)
 
 	if len(info.Examples) > 0 {
 		builder.WriteString(examplesHeader)
 
 		for _, ex := range info.Examples {
-			builder.WriteString(fmt.Sprintf("`%s`\n", ex))
+			builder.WriteString("`")
+			builder.WriteString(ex)
+			builder.WriteString("`\n")
 		}
 	}
 
@@ -137,7 +140,7 @@ func (hc *HelpCommand) buildCommandDetails(cmd Command) string {
 func (hc *HelpCommand) sendHelpResponse(ctx context.Context, msg *message.Message, helpText string) error {
 	err := hc.messageSender.SendText(ctx, msg.Recipient, helpText)
 	if err != nil {
-		hc.logger.Error("Failed to send help response", map[string]interface{}{
+		hc.logger.Error("Failed to send help response", map[string]any{
 			"recipient": msg.Recipient,
 			"error":     err.Error(),
 		})

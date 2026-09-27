@@ -7,14 +7,15 @@ import (
 	"strings"
 	"time"
 
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/types/events"
+
 	"botex/pkg/auth"
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/message"
 	"botex/pkg/ratelimit"
 	"botex/pkg/timing"
-	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/types/events"
 )
 
 const (
@@ -131,7 +132,7 @@ func (h *CommandHandler) Close() {
 	h.rateService.Stop()
 }
 
-func (h *CommandHandler) HandleEvent(evt interface{}) {
+func (h *CommandHandler) HandleEvent(evt any) {
 	msgEvent, isMessage := evt.(*events.Message)
 	if !isMessage {
 		return
@@ -184,7 +185,7 @@ func (h *CommandHandler) checkPermission(ctx context.Context, msg *message.Messa
 
 	permissionResult, err := h.authService.CheckPermission(ctx, userID, groupID, command)
 	if err != nil {
-		h.logger.Error("Permission check failed", map[string]interface{}{
+		h.logger.Error("Permission check failed", map[string]any{
 			"command":  command,
 			"sender":   userID,
 			"group_id": groupID,
@@ -195,7 +196,7 @@ func (h *CommandHandler) checkPermission(ctx context.Context, msg *message.Messa
 	}
 
 	if !permissionResult.Allowed {
-		h.logger.Info("Command permission denied", map[string]interface{}{
+		h.logger.Info("Command permission denied", map[string]any{
 			"command":   command,
 			"sender":    userID,
 			"reason":    permissionResult.Reason,
@@ -220,7 +221,7 @@ func (h *CommandHandler) processCommand(ctx context.Context, msg *message.Messag
 
 		release, semErr := h.acquireSemaphore(ctx)
 		if semErr != nil {
-			h.logger.Warn("Concurrency limit exceeded", map[string]interface{}{
+			h.logger.Warn("Concurrency limit exceeded", map[string]any{
 				"sender": msg.Sender,
 			})
 			h.handleConcurrencyLimit(ctx, msg)
@@ -232,7 +233,7 @@ func (h *CommandHandler) processCommand(ctx context.Context, msg *message.Messag
 		return h.executeCommand(ctx, msg, command)
 	})
 	if err != nil {
-		h.logger.Error("Failed to track command handling", map[string]interface{}{
+		h.logger.Error("Failed to track command handling", map[string]any{
 			"command": command,
 			"sender":  msg.Sender,
 			"error":   err.Error(),
@@ -243,7 +244,7 @@ func (h *CommandHandler) processCommand(ctx context.Context, msg *message.Messag
 func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.Message, err error) {
 	var rateErr *ratelimit.RateLimitError
 	if !errors.As(err, &rateErr) {
-		h.logger.Error("Unexpected error type in rate limiting", map[string]interface{}{
+		h.logger.Error("Unexpected error type in rate limiting", map[string]any{
 			"error":  err.Error(),
 			"sender": msg.Sender,
 		})
@@ -253,7 +254,7 @@ func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.
 
 	reactionErr := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
 	if reactionErr != nil {
-		h.logger.Error("Failed to send rate limit reaction", map[string]interface{}{"error": reactionErr.Error()})
+		h.logger.Error("Failed to send rate limit reaction", map[string]any{"error": reactionErr.Error()})
 	}
 
 	if rateErr.Notify {
@@ -261,7 +262,7 @@ func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.
 
 		textErr := h.messageSender.SendText(ctx, msg.Recipient, waitMsg)
 		if textErr != nil {
-			h.logger.Error("Failed to send rate limit message", map[string]interface{}{"error": textErr.Error()})
+			h.logger.Error("Failed to send rate limit message", map[string]any{"error": textErr.Error()})
 		}
 	}
 }
@@ -286,7 +287,7 @@ func (h *CommandHandler) executeCommand(ctx context.Context, msg *message.Messag
 	err := h.timeTracker.TrackCommand(ctx, command, func(ctx context.Context) error {
 		err := cmd.Handle(ctx, msg)
 		if err != nil {
-			h.logger.Error("Command execution failed", map[string]interface{}{
+			h.logger.Error("Command execution failed", map[string]any{
 				"command": command,
 				"sender":  msg.Sender,
 				"error":   err.Error(),
@@ -294,7 +295,7 @@ func (h *CommandHandler) executeCommand(ctx context.Context, msg *message.Messag
 
 			reactionErr := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "❌")
 			if reactionErr != nil {
-				h.logger.Error("Failed to send error reaction", map[string]interface{}{"error": reactionErr.Error()})
+				h.logger.Error("Failed to send error reaction", map[string]any{"error": reactionErr.Error()})
 			}
 
 			return fmt.Errorf("command %q execution failed: %w", command, err)
@@ -302,7 +303,7 @@ func (h *CommandHandler) executeCommand(ctx context.Context, msg *message.Messag
 
 		reactionErr := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "✅")
 		if reactionErr != nil {
-			h.logger.Error("Failed to send success reaction", map[string]interface{}{"error": reactionErr.Error()})
+			h.logger.Error("Failed to send success reaction", map[string]any{"error": reactionErr.Error()})
 		}
 
 		return nil
@@ -317,26 +318,26 @@ func (h *CommandHandler) executeCommand(ctx context.Context, msg *message.Messag
 func (h *CommandHandler) handleConcurrencyLimit(ctx context.Context, msg *message.Message) {
 	reactionErr := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
 	if reactionErr != nil {
-		h.logger.Error("Failed to send concurrency limit reaction", map[string]interface{}{"error": reactionErr.Error()})
+		h.logger.Error("Failed to send concurrency limit reaction", map[string]any{"error": reactionErr.Error()})
 	}
 
 	textErr := h.messageSender.SendText(ctx, msg.Recipient, concurrentLimitMsg)
 	if textErr != nil {
-		h.logger.Error("Failed to send concurrency limit message", map[string]interface{}{"error": textErr.Error()})
+		h.logger.Error("Failed to send concurrency limit message", map[string]any{"error": textErr.Error()})
 	}
 }
 
 func (h *CommandHandler) handlePermissionDenied(ctx context.Context, msg *message.Message, command string, result *auth.PermissionResult) {
 	reactionErr := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "🚫")
 	if reactionErr != nil {
-		h.logger.Error("Failed to send permission denied reaction", map[string]interface{}{"error": reactionErr.Error()})
+		h.logger.Error("Failed to send permission denied reaction", map[string]any{"error": reactionErr.Error()})
 	}
 
 	permissionMsg := h.createPermissionDeniedMessage(msg.IsGroup, command, result.Reason)
 
 	textErr := h.messageSender.SendText(ctx, msg.Recipient, permissionMsg)
 	if textErr != nil {
-		h.logger.Error("Failed to send permission denied message", map[string]interface{}{"error": textErr.Error()})
+		h.logger.Error("Failed to send permission denied message", map[string]any{"error": textErr.Error()})
 	}
 }
 
