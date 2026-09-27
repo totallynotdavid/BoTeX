@@ -45,6 +45,40 @@ func (r *Repository) GetUser(ctx context.Context, userID string) (*User, error) 
 	return &user, nil
 }
 
+// FindUserIgnoringActive looks up a user by ID regardless of the active flag,
+// unlike GetUser which auth checks rely on to treat a deactivated user as
+// absent. It returns ErrUserNotFound if no row exists for userID at all.
+func (r *Repository) FindUserIgnoringActive(ctx context.Context, userID string) (user *User, active bool, err error) {
+	query := `
+			SELECT user_id, rank, registered_at, registered_by, active
+			FROM users
+			WHERE user_id = ?
+	`
+
+	var (
+		foundUser    User
+		registeredBy sql.NullString
+		activeFlag   int
+	)
+
+	err = r.db.QueryRowContext(ctx, query, userID).Scan(
+		&foundUser.ID, &foundUser.Rank, &foundUser.RegisteredAt, &registeredBy, &activeFlag,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, ErrUserNotFound
+		}
+
+		return nil, false, fmt.Errorf("failed to find user: %w", err)
+	}
+
+	if registeredBy.Valid {
+		foundUser.RegisteredBy = registeredBy.String
+	}
+
+	return &foundUser, activeFlag != 0, nil
+}
+
 func (r *Repository) CreateUser(ctx context.Context, userID, rank, registeredBy string) error {
 	query := `INSERT INTO users (user_id, rank, registered_by, active) 
 			  VALUES (?, ?, ?, 1)`
