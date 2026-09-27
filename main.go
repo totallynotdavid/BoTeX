@@ -82,6 +82,21 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 
 	authService := auth.New(database)
 
+	seedResult, err := authService.SeedOwners(ctx, cfg.Auth.OwnerJIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to seed owners: %w", err)
+	}
+
+	for _, jid := range seedResult.Created {
+		appLogger.Info("Seeded owner from config", map[string]any{"jid": jid})
+	}
+
+	for _, jid := range seedResult.Skipped {
+		appLogger.Warn("Owner JID from config already registered with a different rank; leaving unchanged", map[string]any{
+			"jid": jid,
+		})
+	}
+
 	commandHandler, err := setupCommands(client, cfg, loggerFactory, authService)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup commands: %w", err)
