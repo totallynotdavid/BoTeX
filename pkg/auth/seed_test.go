@@ -94,6 +94,55 @@ func TestSeedOwners_IdempotentNoDuplicates(t *testing.T) {
 	}
 }
 
+func TestSeedOwners_LeavesInactiveUserUntouched(t *testing.T) {
+	t.Parallel()
+
+	database := newTestDB(t)
+	service := auth.NewService(database)
+	ctx := context.Background()
+
+	const inactiveJID = "15550001111@s.whatsapp.net"
+
+	_, err := database.ExecContext(ctx,
+		"INSERT INTO users (user_id, rank, registered_by, active) VALUES (?, ?, ?, 0)",
+		inactiveJID, "admin", "someone",
+	)
+	if err != nil {
+		t.Fatalf("failed to insert inactive user: %v", err)
+	}
+
+	result, err := service.SeedOwners(ctx, []string{inactiveJID})
+	if err != nil {
+		t.Fatalf("SeedOwners failed: %v", err)
+	}
+
+	if len(result.Created) != 0 {
+		t.Errorf("expected no users created, got %v", result.Created)
+	}
+
+	if len(result.Skipped) != 0 {
+		t.Errorf("expected no users skipped, got %v", result.Skipped)
+	}
+
+	if len(result.Inactive) != 1 || result.Inactive[0] != inactiveJID {
+		t.Errorf("expected %q to be reported as inactive, got %v", inactiveJID, result.Inactive)
+	}
+
+	var (
+		rank   string
+		active int
+	)
+
+	err = database.QueryRowContext(ctx, "SELECT rank, active FROM users WHERE user_id = ?", inactiveJID).Scan(&rank, &active)
+	if err != nil {
+		t.Fatalf("failed to query user: %v", err)
+	}
+
+	if rank != "admin" || active != 0 {
+		t.Errorf("expected inactive user to remain unchanged, got rank=%q active=%d", rank, active)
+	}
+}
+
 func TestSeedOwners_DoesNotDowngradeExistingRank(t *testing.T) {
 	t.Parallel()
 
