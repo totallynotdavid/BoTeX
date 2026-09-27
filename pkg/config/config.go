@@ -6,27 +6,24 @@ import (
 	"os"
 	"time"
 
+	"github.com/joho/godotenv"
+
 	"botex/pkg/logger"
 	"botex/pkg/util"
-	"github.com/joho/godotenv"
 )
 
 const (
-	// Size constants.
 	KB = 1024
 	MB = KB * 1024
 
-	// Default configuration values.
 	DefaultMaxImageSize  = 5 * MB
 	DefaultMaxConcurrent = 10
 
-	// Rate limiting defaults.
 	DefaultRateLimitRequests             = 5
 	DefaultRateLimitPeriod               = 1 * time.Minute
 	DefaultRateLimitNotificationCooldown = 5 * time.Minute
 	DefaultRateLimitCleanupInterval      = 1 * time.Hour
 
-	// Default timing configuration.
 	DefaultTimingLevel        = "disabled"
 	DefaultTimingLogThreshold = 100 * time.Millisecond
 )
