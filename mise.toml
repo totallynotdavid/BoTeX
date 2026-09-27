@@ -1,6 +1,6 @@
 [tools]
-go = "1.25.4"
-golangci-lint = "2.6.2"
+go = "1.27.1"
+golangci-lint = "2.14.0"
 
 [tasks.install]
 description = "Install Go dependencies"
