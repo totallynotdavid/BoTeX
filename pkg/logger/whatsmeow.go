@@ -18,19 +18,19 @@ func NewWhatsmeowLogger(logger *Logger, tag string) *WhatsmeowLogger {
 	}
 }
 
-func (w *WhatsmeowLogger) Errorf(msg string, args ...interface{}) {
+func (w *WhatsmeowLogger) Errorf(msg string, args ...any) {
 	w.logger.Errorf(msg, args...)
 }
 
-func (w *WhatsmeowLogger) Warnf(msg string, args ...interface{}) {
+func (w *WhatsmeowLogger) Warnf(msg string, args ...any) {
 	w.logger.Warnf(msg, args...)
 }
 
-func (w *WhatsmeowLogger) Infof(msg string, args ...interface{}) {
+func (w *WhatsmeowLogger) Infof(msg string, args ...any) {
 	w.logger.Infof(msg, args...)
 }
 
-func (w *WhatsmeowLogger) Debugf(msg string, args ...interface{}) {
+func (w *WhatsmeowLogger) Debugf(msg string, args ...any) {
 	w.logger.Debugf(msg, args...)
 }
 

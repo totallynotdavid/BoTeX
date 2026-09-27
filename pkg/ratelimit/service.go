@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"time"
 
+	"go.mau.fi/whatsmeow/types"
+
 	"botex/pkg/logger"
 	"botex/pkg/message"
-	"go.mau.fi/whatsmeow/types"
 )
 
 var (
@@ -83,7 +84,7 @@ func (s *RateLimitService) Check(ctx context.Context, msg *message.Message) erro
 	}
 
 	shouldNotify := s.notifier.ShouldNotify(msg.Sender)
-	s.logger.Warn("Rate limit exceeded", map[string]interface{}{
+	s.logger.Warn("Rate limit exceeded", map[string]any{
 		"sender":     msg.Sender,
 		"resetAfter": result.ResetAfter,
 		"notify":     shouldNotify,

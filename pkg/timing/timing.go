@@ -52,7 +52,7 @@ func (t *Tracker) Track(ctx context.Context, operation string, level Level, oper
 
 	// Only log if duration exceeds threshold
 	if duration >= t.config.LogThreshold {
-		t.logger.Info("Performance tracking", map[string]interface{}{
+		t.logger.Info("Performance tracking", map[string]any{
 			"operation": operation,
 			"duration":  duration.String(),
 			"level":     level,

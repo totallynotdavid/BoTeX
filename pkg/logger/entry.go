@@ -10,15 +10,15 @@ import (
 const defaultLogBufferSize = 128
 
 type Entry struct {
-	Timestamp time.Time              `json:"timestamp"`
-	Level     LogLevel               `json:"-"`
-	LevelStr  string                 `json:"level"`
-	Name      string                 `json:"name,omitempty"`
-	Message   string                 `json:"message"`
-	Data      map[string]interface{} `json:"data,omitempty"`
+	Timestamp time.Time      `json:"timestamp"`
+	Level     LogLevel       `json:"-"`
+	LevelStr  string         `json:"level"`
+	Name      string         `json:"name,omitempty"`
+	Message   string         `json:"message"`
+	Data      map[string]any `json:"data,omitempty"`
 }
 
-func NewEntry(level LogLevel, name, message string, data map[string]interface{}) Entry {
+func NewEntry(level LogLevel, name, message string, data map[string]any) Entry {
 	return Entry{
 		Timestamp: time.Now(),
 		Level:     level,

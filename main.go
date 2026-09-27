@@ -11,15 +11,16 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/mdp/qrterminal/v3"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/store/sqlstore"
+
 	"botex/pkg/auth"
 	"botex/pkg/commands"
 	"botex/pkg/config"
 	"botex/pkg/logger"
 	"botex/pkg/timing"
-	_ "github.com/mattn/go-sqlite3"
-	"github.com/mdp/qrterminal/v3"
-	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/store/sqlstore"
 )
 
 const (
@@ -56,7 +57,7 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 		if !successfulInit {
 			closeErr := database.Close()
 			if closeErr != nil {
-				appLogger.Error("Failed to close database during cleanup", map[string]interface{}{
+				appLogger.Error("Failed to close database during cleanup", map[string]any{
 					"error": closeErr.Error(),
 				})
 			}
@@ -103,7 +104,7 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 func setupDatabase(cfg *config.Config, appLogger *logger.Logger) (*sql.DB, error) {
 	dbPath := cfg.DBPath
 
-	appLogger.Info("Opening database connection", map[string]interface{}{
+	appLogger.Info("Opening database connection", map[string]any{
 		"path": dbPath,
 	})
 
@@ -121,7 +122,7 @@ func setupDatabase(cfg *config.Config, appLogger *logger.Logger) (*sql.DB, error
 	if err != nil {
 		closeErr := database.Close()
 		if closeErr != nil {
-			appLogger.Error("Failed to close database after ping failure", map[string]interface{}{
+			appLogger.Error("Failed to close database after ping failure", map[string]any{
 				"error": closeErr.Error(),
 			})
 		}
@@ -206,7 +207,7 @@ func (b *Bot) Shutdown() {
 	if b.db != nil {
 		err := b.db.Close()
 		if err != nil {
-			b.logger.Error("Error closing database connection", map[string]interface{}{
+			b.logger.Error("Error closing database connection", map[string]any{
 				"error": err.Error(),
 			})
 		}
