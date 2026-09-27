@@ -30,7 +30,7 @@ type PermissionResult struct {
 	UserRank string `json:"userRank,omitempty"`
 }
 
-// checks if rank has permission for command.
+// HasCommand checks if rank has permission for command.
 func (r *Rank) HasCommand(command string) bool {
 	for _, cmd := range r.Commands {
 		if cmd == "*" || cmd == command {
@@ -41,7 +41,7 @@ func (r *Rank) HasCommand(command string) bool {
 	return false
 }
 
-// converts comma-separated string to slice
+// ParseCommands converts comma-separated string to slice.
 // example: "cmd1, cmd2" -> ["cmd1", "cmd2"]
 func ParseCommands(raw string) []string {
 	if raw == "" {
@@ -60,7 +60,7 @@ func ParseCommands(raw string) []string {
 	return commands
 }
 
-// converts slice to comma-separated string.
+// JoinCommands converts slice to comma-separated string.
 // inverse of ParseCommands.
 func JoinCommands(commands []string) string {
 	if len(commands) == 0 {

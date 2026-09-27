@@ -15,7 +15,6 @@ func NewRepository(db *sql.DB) *Repository {
 	return &Repository{db: db}
 }
 
-// user operations.
 func (r *Repository) GetUser(ctx context.Context, userID string) (*User, error) {
 	query := `
 			SELECT user_id, rank, registered_at, registered_by 
@@ -75,7 +74,6 @@ func (r *Repository) UserExists(ctx context.Context, userID string) (bool, error
 	return true, nil
 }
 
-// rank operations.
 func (r *Repository) GetRank(ctx context.Context, name string) (*Rank, error) {
 	query := `SELECT name, level, commands FROM ranks WHERE name = ? AND active = 1`
 
@@ -138,7 +136,6 @@ func (r *Repository) ListRanks(ctx context.Context) (ranks []*Rank, err error) {
 	return ranks, nil
 }
 
-// group operations.
 func (r *Repository) GetGroup(ctx context.Context, groupID string) (*Group, error) {
 	query := `SELECT group_id, registered_at, registered_by 
 			  FROM registered_groups WHERE group_id = ? AND active = 1`
