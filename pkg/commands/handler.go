@@ -138,6 +138,10 @@ func (h *CommandHandler) HandleEvent(evt any) {
 		return
 	}
 
+	if msgEvent.Info.IsFromMe && !h.config.Auth.ProcessOwnMessages {
+		return
+	}
+
 	msg := message.NewMessage(msgEvent)
 
 	command, hasCommand := h.extractCommand(msg)
