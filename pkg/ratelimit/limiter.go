@@ -53,10 +53,7 @@ func (l *Limiter) Check(user types.JID) Result {
 	// Calculate reset time
 	resetAfter := l.period
 	if len(validRequests) > 0 {
-		resetAfter = l.period - now.Sub(earliest)
-		if resetAfter < 0 {
-			resetAfter = 0
-		}
+		resetAfter = max(l.period-now.Sub(earliest), 0)
 	}
 
 	allowed := len(validRequests) < l.maxRequests
@@ -80,6 +77,7 @@ func (l *Limiter) Cleanup() {
 	defer l.mu.Unlock()
 
 	now := time.Now()
+
 	for user, requests := range l.requests {
 		var valid []time.Time
 
