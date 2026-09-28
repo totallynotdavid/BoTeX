@@ -235,48 +235,60 @@ func conversations() []script {
 	}
 }
 
-// The scripts together must enter every node of the example flow, so each
-// condition, action and shared list of transitions has been used through the
-// real wiring.
+// TestConversations plays each script alone, so one can be run by its name.
 func TestConversations(t *testing.T) {
 	t.Parallel()
-
-	var (
-		lock    sync.Mutex
-		entered = map[string]bool{}
-	)
-
-	// Cleanup runs once every script has finished.
-	t.Cleanup(func() {
-		example, err := fsm.Example()
-		if err != nil {
-			t.Error(err)
-
-			return
-		}
-
-		for node := range example.Nodes {
-			if !entered[node] {
-				t.Errorf("no script enters node %s of the example flow", node)
-			}
-		}
-	})
 
 	for _, test := range conversations() {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			nodes := test.play(t)
+			test.play(t)
+		})
+	}
+}
 
-			if test.flowFile == "" {
+// The scripts together must enter every node of the example flow, so each
+// condition, action and shared list of transitions has been used through the
+// real wiring. The name must not contain TestConversations, or running one
+// script by name would run this test too.
+func TestScriptsEnterEveryExampleNode(t *testing.T) {
+	var (
+		lock    sync.Mutex
+		entered = map[string]bool{}
+	)
+
+	// The group's subtests all finish before t.Run returns.
+	t.Run("scripts", func(t *testing.T) {
+		for _, test := range conversations() {
+			if test.flowFile != "" {
+				continue
+			}
+
+			t.Run(test.name, func(t *testing.T) {
+				t.Parallel()
+
+				nodes := test.play(t)
+
 				lock.Lock()
 				defer lock.Unlock()
 
 				for _, node := range nodes {
 					entered[node] = true
 				}
-			}
-		})
+			})
+		}
+	})
+
+	example, err := fsm.Example()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for node := range example.Nodes {
+		if !entered[node] {
+			t.Errorf("no script enters node %s of the example flow", node)
+		}
 	}
 }
 
