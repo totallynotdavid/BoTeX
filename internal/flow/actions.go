@@ -35,23 +35,27 @@ type Downloader interface {
 	Download(ctx context.Context, media *bot.Media) ([]byte, error)
 }
 
+// actionEscalate hands the user to a person. The app runs it when a user is
+// stuck or an action fails, and the help node names it too.
+const actionEscalate = "escalate_to_human_agent"
+
 // handler carries out one action. msg is the message that took the user along
-// the transition and origin is the node the action came from.
-type handler func(ctx context.Context, state *State, msg bot.Message, origin string) error
+// the transition and origin is the node the action came from. media fetches
+// the message's attachment.
+type handler func(ctx context.Context, media Downloader, state *State, msg bot.Message, origin string) error
 
 // Actions applies the actions of a flow to a user's State.
 type Actions struct {
-	downloader Downloader
 	voucherDir string
 	// handlers is the whole vocabulary a flow file may use. Apply and Check both
 	// read it, so what one runs is what the other accepts.
 	handlers map[string]handler
 }
 
-// NewActions returns Actions that download vouchers with downloader and save
-// them in voucherDir, which is created when the first voucher arrives.
-func NewActions(downloader Downloader, voucherDir string) *Actions {
-	actions := &Actions{downloader: downloader, voucherDir: voucherDir}
+// NewActions returns Actions that save vouchers in voucherDir, which is
+// created when the first voucher arrives.
+func NewActions(voucherDir string) *Actions {
+	actions := &Actions{voucherDir: voucherDir}
 
 	actions.handlers = map[string]handler{
 		// A new lead is a fact for the log. The state holds nothing to record.
@@ -61,12 +65,12 @@ func NewActions(downloader Downloader, voucherDir string) *Actions {
 		"update_lead_interest_beginner": stateOnly(func(state *State, _ string) { state.CourseInterest = "beginner" }),
 		"update_lead_interest_advanced": stateOnly(func(state *State, _ string) { state.CourseInterest = "advanced" }),
 		"update_lead_consulted_price":   stateOnly(func(state *State, _ string) { state.ConsultedPrice = true }),
-		"escalate_to_human_agent":       stateOnly(func(state *State, _ string) { state.RequiresHumanAgent = true }),
-		"save_user_name": func(_ context.Context, state *State, msg bot.Message, _ string) error {
+		actionEscalate:                  stateOnly(func(state *State, _ string) { state.RequiresHumanAgent = true }),
+		"save_user_name": func(_ context.Context, _ Downloader, state *State, msg bot.Message, _ string) error {
 			return saveUserName(state, msg.Text)
 		},
-		"save_payment_voucher": func(ctx context.Context, state *State, msg bot.Message, _ string) error {
-			return actions.savePaymentVoucher(ctx, state, msg)
+		"save_payment_voucher": func(ctx context.Context, media Downloader, state *State, msg bot.Message, _ string) error {
+			return actions.savePaymentVoucher(ctx, media, state, msg)
 		},
 	}
 
@@ -75,7 +79,7 @@ func NewActions(downloader Downloader, voucherDir string) *Actions {
 
 // stateOnly adapts an action that changes the state and needs nothing else.
 func stateOnly(change func(state *State, origin string)) handler {
-	return func(_ context.Context, state *State, _ bot.Message, origin string) error {
+	return func(_ context.Context, _ Downloader, state *State, _ bot.Message, origin string) error {
 		change(state, origin)
 
 		return nil
@@ -98,10 +102,11 @@ func (a *Actions) Check(flow *fsm.Flow) error {
 }
 
 // Apply runs action on state. msg is the message that took the user along the
-// transition, and origin is the node the action came from. An empty action
-// does nothing. A message that cannot carry out the action is reported as an
-// error and leaves state as it was.
-func (a *Actions) Apply(ctx context.Context, action string, state *State, msg bot.Message, origin string) error {
+// transition, and origin is the node the action came from. media fetches the
+// attachment of msg: it is per call because the connection that received msg
+// answers it. An empty action does nothing. A message that cannot carry out
+// the action is reported as an error and leaves state as it was.
+func (a *Actions) Apply(ctx context.Context, media Downloader, action string, state *State, msg bot.Message, origin string) error {
 	if action == "" {
 		return nil
 	}
@@ -111,7 +116,7 @@ func (a *Actions) Apply(ctx context.Context, action string, state *State, msg bo
 		return fmt.Errorf("%w: %q", ErrUnknownAction, action)
 	}
 
-	return run(ctx, state, msg, origin)
+	return run(ctx, media, state, msg, origin)
 }
 
 // saveUserName stores what the user typed as their name, without an
@@ -151,14 +156,14 @@ func introduction(text string) string {
 
 // savePaymentVoucher stores the image of msg as the user's voucher. Anything
 // else escalates to a person, who then asks for the voucher.
-func (a *Actions) savePaymentVoucher(ctx context.Context, state *State, msg bot.Message) error {
+func (a *Actions) savePaymentVoucher(ctx context.Context, media Downloader, state *State, msg bot.Message) error {
 	if msg.Media == nil || msg.Media.Kind != bot.MediaImage {
 		state.RequiresHumanAgent = true
 
 		return nil
 	}
 
-	data, err := a.downloader.Download(ctx, msg.Media)
+	data, err := media.Download(ctx, msg.Media)
 	if err != nil {
 		return fmt.Errorf("download voucher: %w", err)
 	}
