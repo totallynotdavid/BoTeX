@@ -106,10 +106,11 @@ func NewStore(ctx context.Context, database *sql.DB) (*Store, error) {
 // and sets LastUpdated to the current time in UTC. When turn or the save
 // fails, nothing is stored, and the error is returned.
 //
-// Turns of one user run one at a time, in the order they get the lock, so turn
-// may send replies and they stay in order. Turns of different users run in
-// parallel. The lock is in this process: two processes on one database are not
-// supported. turn must not start a turn of the same user.
+// Turns of one user run one at a time, in the order they get the lock. Replies
+// sent after Turn returns are not ordered, because the lock is already
+// released. Turns of different users run in parallel. The lock is in this
+// process: two processes on one database are not supported. turn must not
+// start a turn of the same user.
 func (s *Store) Turn(ctx context.Context, user bot.JID, turn func(state *State) ([]StoredMessage, error)) error {
 	lock, err := s.acquire(ctx, user)
 	if err != nil {
