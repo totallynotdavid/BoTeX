@@ -19,6 +19,11 @@ jobs:
         with:
           go-version: stable
 
+      - name: Install typst
+        uses: jdx/mise-action@v4
+        with:
+          install_args: typst
+
       - name: Install render toolchain
         run: |
           sudo apt-get update
