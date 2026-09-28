@@ -4,14 +4,16 @@ on:
   push:
     branches: [master]
     paths:
-      - "pkg/**"
-      - "main.go"
+      - "**.go"
       - "go.mod"
+      - "go.sum"
+      - ".github/workflows/**"
   pull_request:
     paths:
-      - "pkg/**"
-      - "main.go"
+      - "**.go"
       - "go.mod"
+      - "go.sum"
+      - ".github/workflows/**"
   schedule:
     - cron: "0 0 * * 0"
   workflow_dispatch:
