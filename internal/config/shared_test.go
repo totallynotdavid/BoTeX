@@ -42,6 +42,7 @@ func TestSharedOverridesEachType(t *testing.T) {
 		config.KeyStore:             "/var/lib/bot/state.db",
 		config.KeyLogLevel:          "debug",
 		config.KeyOwners:            "51900000001@s.whatsapp.net, 51900000002@s.whatsapp.net",
+		config.KeyAllowOnly:         "51900000003@s.whatsapp.net",
 		config.KeyRateLimitRequests: "20",
 		config.KeyRateLimitPeriod:   "30s",
 		config.KeyRateLimitCooldown: "2m",
@@ -55,6 +56,7 @@ func TestSharedOverridesEachType(t *testing.T) {
 		Store:       "/var/lib/bot/state.db",
 		LogLevel:    slog.LevelDebug,
 		Owners:      []string{"51900000001@s.whatsapp.net", "51900000002@s.whatsapp.net"},
+		AllowOnly:   []string{"51900000003@s.whatsapp.net"},
 		RateLimit:   config.RateLimit{Requests: 20, Period: 30 * time.Second, Cooldown: 2 * time.Minute},
 		MaxInFlight: 3,
 		OwnMessages: true,
@@ -104,14 +106,20 @@ func TestSharedBadValuesNameTheirKey(t *testing.T) {
 	}
 }
 
-func TestSharedBadOwnerWrapsTheParseError(t *testing.T) {
+func TestSharedBadJIDListWrapsTheParseError(t *testing.T) {
 	t.Parallel()
 
-	env := fromMap(map[string]string{config.KeyOwners: "user@server:3"})
-	env.Shared(config.DefaultShared())
+	for _, key := range []string{config.KeyOwners, config.KeyAllowOnly} {
+		env := fromMap(map[string]string{key: "user@server:3"})
+		env.Shared(config.DefaultShared())
 
-	err := env.Err()
-	if !errors.Is(err, auth.ErrInvalidOwnerJID) {
-		t.Errorf("Err() = %v, want auth.ErrInvalidOwnerJID", err)
+		err := env.Err()
+		if !errors.Is(err, auth.ErrInvalidJID) {
+			t.Errorf("%s: Err() = %v, want auth.ErrInvalidJID", key, err)
+		}
+
+		if !strings.Contains(err.Error(), key+"=") {
+			t.Errorf("%s: Err() = %v, want an error naming the key", key, err)
+		}
 	}
 }

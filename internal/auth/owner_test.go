@@ -8,7 +8,7 @@ import (
 	"github.com/totallynotdavid/botkit/internal/auth"
 )
 
-func TestParseOwners(t *testing.T) {
+func TestParseJIDs(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -32,7 +32,7 @@ func TestParseOwners(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := auth.ParseOwners(scenario.raw)
+			got, err := auth.ParseJIDs(scenario.raw)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -44,7 +44,7 @@ func TestParseOwners(t *testing.T) {
 	}
 }
 
-func TestParseOwnersRejectsMalformed(t *testing.T) {
+func TestParseJIDsRejectsMalformed(t *testing.T) {
 	t.Parallel()
 
 	for _, raw := range []string{
@@ -61,9 +61,9 @@ func TestParseOwnersRejectsMalformed(t *testing.T) {
 		t.Run(raw, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := auth.ParseOwners(raw)
-			if !errors.Is(err, auth.ErrInvalidOwnerJID) {
-				t.Fatalf("got %v, want ErrInvalidOwnerJID", err)
+			_, err := auth.ParseJIDs(raw)
+			if !errors.Is(err, auth.ErrInvalidJID) {
+				t.Fatalf("got %v, want ErrInvalidJID", err)
 			}
 		})
 	}
