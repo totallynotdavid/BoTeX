@@ -23,6 +23,18 @@ func TestLevenshtein(t *testing.T) {
 		{"menú", "menu", 1},
 		{"año", "ano", 1},
 		{"flaw", "lawn", 2},
+		{"básico", "básico", 0},
+		{"online", "onlime", 1},
+		{"catálogo", "catalogo", 1},
+		{"costo", "costos", 1},
+		{"menu", "mennu", 1},
+		{"horario", "horrio", 1},
+		{"horarios", "horaro", 2},
+		{"experiencia", "exerincia", 2},
+		{"costo", "csoto", 2},
+		{"presencial", "precidensial", 4},
+		{"precio", "gratis", 4},
+		{"ayuda", "", 5},
 	}
 
 	for _, test := range tests {

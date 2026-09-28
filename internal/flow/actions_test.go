@@ -219,6 +219,8 @@ func TestApplySavePaymentVoucherFileName(t *testing.T) {
 		{"hyphens and underscores stay", "1@s.whatsapp.net", "Ana-Maria_2", "1_Ana-Maria_2_"},
 		{"accented letters are dropped", "1@s.whatsapp.net", "María José", "1_Mara_Jos_"},
 		{"punctuation alone falls back to user", "1@s.whatsapp.net", "!!!", "1_user_"},
+		{"symbols split by a space fall back to user", "1@s.whatsapp.net", "!!! ???", "1_user_"},
+		{"spaces around the name leave no underscores", "1@s.whatsapp.net", " Ana ", "1_Ana_"},
 		{"an empty name falls back to user", "1@s.whatsapp.net", "", "1_user_"},
 		{"path separators are dropped", "1@s.whatsapp.net", "../etc", "1_etc_"},
 	}
