@@ -2,29 +2,14 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
 
-	"github.com/totallynotdavid/botkit/internal/bot"
+	"github.com/totallynotdavid/botkit/internal/cli"
 	"github.com/totallynotdavid/botkit/internal/config"
 )
 
-type Settings = settings
-
-const (
-	ExitOK      = exitOK
-	ExitFailure = exitFailure
-	ExitConfig  = exitConfig
-	ExitUsage   = exitUsage
-)
-
-func ReadSettings(env *config.Env) (Settings, error) { return readSettings(env) }
-
-func ExitStatus(ctx context.Context, err error) int { return exitStatus(ctx, err) }
-
-func Execute(ctx context.Context, args []string) int { return execute(ctx, args) }
-
-// Run is run with the WhatsApp connection open supplies.
-func Run(ctx context.Context, cfg Settings, log *slog.Logger, open func(context.Context, *sql.DB, *slog.Logger) (bot.Client, error)) error {
-	return run(ctx, cfg, log, open)
+// Run is the run subcommand with the environment and the WhatsApp connection
+// the caller supplies.
+func Run(ctx context.Context, env *config.Env, log *slog.Logger, open cli.OpenClient) error {
+	return cli.Run(ctx, botCommand(), env, log, open) //nolint:wrapcheck // the tests read Run's error as it is.
 }
