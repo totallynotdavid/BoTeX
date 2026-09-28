@@ -110,9 +110,9 @@ The rank system has three levels: owner (full access), admin (user management),
 and user (basic commands), but only `help` and `latex` are wired up as chat
 commands today; there is no `!register_user` or `!register_group` command yet.
 To bring in further users or groups, insert directly into the `users` or
-`registered_groups` tables (see [pkg/auth/readme.md](pkg/auth/readme.md) for the
-schema and the `RegisterUser`/`RegisterGroup` API those tables back), or add
-more JIDs to `BOTEX_OWNER_JIDS` if they should also be owners.
+`registered_groups` tables (see [internal/auth](internal/auth/doc.go) for the
+ranks and the `RegisterUser`/`RegisterGroup` API those tables back), or add more
+JIDs to `BOTEX_OWNER_JIDS` if they should also be owners.
 
 ## Usage
 

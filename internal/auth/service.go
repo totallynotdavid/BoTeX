@@ -10,62 +10,41 @@ type Service struct {
 	repo *Repository
 }
 
-func NewService(db *sql.DB) *Service {
-	return &Service{
-		repo: NewRepository(db),
+// New creates the tables in database if they are missing and returns a Service
+// over them. The owner rank always exists; defaults are the app's other ranks,
+// and a rank already stored is left as it is.
+func New(ctx context.Context, database *sql.DB, defaults ...Rank) (*Service, error) {
+	err := initSchema(ctx, database, defaults)
+	if err != nil {
+		return nil, err
 	}
+
+	return &Service{repo: NewRepository(database)}, nil
 }
 
-func (s *Service) CheckPermission(ctx context.Context, userID, groupID, command string) (*PermissionResult, error) {
+// CheckPermission reports whether user is registered with a rank that may run
+// command. An unregistered user is denied without an error.
+func (s *Service) CheckPermission(ctx context.Context, user, command string) (bool, error) {
 	err := ValidateCommand(command)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
-	user, err := s.repo.GetUser(ctx, userID)
+	found, err := s.repo.GetUser(ctx, user)
+	if errors.Is(err, ErrUserNotFound) {
+		return false, nil
+	}
+
 	if err != nil {
-		if errors.Is(err, ErrUserNotFound) {
-			return &PermissionResult{
-				Allowed: false,
-				Reason:  "User not registered",
-			}, nil
-		}
-
-		return nil, err
+		return false, err
 	}
 
-	if groupID != "" {
-		exists, err := s.repo.GroupExists(ctx, groupID)
-		if err != nil {
-			return nil, err
-		}
-
-		if !exists {
-			return &PermissionResult{
-				Allowed: false,
-				Reason:  "Group not registered",
-			}, nil
-		}
-	}
-
-	rank, err := s.repo.GetRank(ctx, user.Rank)
+	rank, err := s.repo.GetRank(ctx, found.Rank)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 
-	if !rank.HasCommand(command) {
-		return &PermissionResult{
-			Allowed:  false,
-			Reason:   "Command not allowed for your rank",
-			UserRank: user.Rank,
-		}, nil
-	}
-
-	return &PermissionResult{
-		Allowed:  true,
-		Reason:   "Access granted",
-		UserRank: user.Rank,
-	}, nil
+	return rank.HasCommand(command), nil
 }
 
 func (s *Service) RegisterUser(ctx context.Context, userID, rankName, registeredBy string) error {

@@ -13,21 +13,16 @@ type User struct {
 }
 
 type Rank struct {
-	Name     string   `json:"name"`
-	Level    int      `json:"level"`
-	Commands []string `json:"commands"`
+	Name        string   `json:"name"`
+	Level       int      `json:"level"`
+	Commands    []string `json:"commands"`
+	Description string   `json:"description"`
 }
 
 type Group struct {
 	ID           string    `json:"id"`
 	RegisteredAt time.Time `json:"registeredAt"`
 	RegisteredBy string    `json:"registeredBy"`
-}
-
-type PermissionResult struct {
-	Allowed  bool   `json:"allowed"`
-	Reason   string `json:"reason"`
-	UserRank string `json:"userRank,omitempty"`
 }
 
 // HasCommand checks if rank has permission for command.

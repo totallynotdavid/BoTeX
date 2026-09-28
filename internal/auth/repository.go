@@ -109,7 +109,7 @@ func (r *Repository) UserExists(ctx context.Context, userID string) (bool, error
 }
 
 func (r *Repository) GetRank(ctx context.Context, name string) (*Rank, error) {
-	query := `SELECT name, level, commands FROM ranks WHERE name = ? AND active = 1`
+	query := `SELECT name, level, commands, COALESCE(description, '') FROM ranks WHERE name = ? AND active = 1`
 
 	var (
 		rank        Rank
@@ -117,7 +117,7 @@ func (r *Repository) GetRank(ctx context.Context, name string) (*Rank, error) {
 	)
 
 	err := r.db.QueryRowContext(ctx, query, name).Scan(
-		&rank.Name, &rank.Level, &commandsRaw,
+		&rank.Name, &rank.Level, &commandsRaw, &rank.Description,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -133,7 +133,7 @@ func (r *Repository) GetRank(ctx context.Context, name string) (*Rank, error) {
 }
 
 func (r *Repository) ListRanks(ctx context.Context) (ranks []*Rank, err error) {
-	query := `SELECT name, level, commands FROM ranks WHERE active = 1 ORDER BY level`
+	query := `SELECT name, level, commands, COALESCE(description, '') FROM ranks WHERE active = 1 ORDER BY level`
 
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
@@ -153,7 +153,7 @@ func (r *Repository) ListRanks(ctx context.Context) (ranks []*Rank, err error) {
 			commandsRaw string
 		)
 
-		scanErr := rows.Scan(&rank.Name, &rank.Level, &commandsRaw)
+		scanErr := rows.Scan(&rank.Name, &rank.Level, &commandsRaw, &rank.Description)
 		if scanErr != nil {
 			return nil, fmt.Errorf("failed to scan rank: %w", scanErr)
 		}

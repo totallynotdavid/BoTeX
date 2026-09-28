@@ -41,23 +41,36 @@ CREATE INDEX IF NOT EXISTS idx_ranks_active ON ranks(active);
 CREATE INDEX IF NOT EXISTS idx_groups_active ON registered_groups(active);
 `
 
-const defaultRanksData = `
--- Insert default ranks
-INSERT OR IGNORE INTO ranks (name, level, commands, description) VALUES
-('owner', 0, '*', 'Bot owner with full access'),
-('admin', 10, 'help,latex,register_user,register_group', 'Administrator with management access'),
-('user', 100, 'help,latex', 'Basic user access');
-`
+const (
+	// ownerRankLevel puts owner ahead of every rank an app defines.
+	ownerRankLevel       = 0
+	ownerRankDescription = "Bot owner with full access"
+)
 
-func InitSchema(ctx context.Context, database *sql.DB) error {
+// initSchema creates the tables and inserts the owner rank plus defaults.
+// Ranks that already exist are left as an operator edited them.
+func initSchema(ctx context.Context, database *sql.DB, defaults []Rank) error {
 	_, err := database.ExecContext(ctx, schema)
 	if err != nil {
 		return fmt.Errorf("exec schema: %w", err)
 	}
 
-	_, err = database.ExecContext(ctx, defaultRanksData)
-	if err != nil {
-		return fmt.Errorf("insert default ranks: %w", err)
+	owner := Rank{Name: ownerRank, Level: ownerRankLevel, Commands: []string{"*"}, Description: ownerRankDescription}
+	ranks := append([]Rank{owner}, defaults...)
+
+	for _, rank := range ranks {
+		err = ValidateRankName(rank.Name)
+		if err != nil {
+			return fmt.Errorf("default rank %q: %w", rank.Name, err)
+		}
+
+		_, err = database.ExecContext(ctx,
+			`INSERT OR IGNORE INTO ranks (name, level, commands, description) VALUES (?, ?, ?, ?)`,
+			rank.Name, rank.Level, JoinCommands(rank.Commands), rank.Description,
+		)
+		if err != nil {
+			return fmt.Errorf("insert default rank %q: %w", rank.Name, err)
+		}
 	}
 
 	return nil
