@@ -209,7 +209,7 @@ func writeVoucher(dir, pattern string, data []byte) (string, error) {
 func voucherPattern(user bot.JID, pushName string) string {
 	phone, _, _ := strings.Cut(string(user), "@")
 
-	name := voucherUnsafe.ReplaceAllString(strings.ReplaceAll(pushName, " ", "_"), "")
+	name := strings.Trim(voucherUnsafe.ReplaceAllString(strings.ReplaceAll(pushName, " ", "_"), ""), "_")
 	if name == "" {
 		name = "user"
 	}
