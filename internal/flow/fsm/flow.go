@@ -126,7 +126,8 @@ func (f *Flow) Actions() []ActionUse {
 		add(fmt.Sprintf("node %q", nodeID), node.Action)
 
 		// A node's transitions start with those of the group it includes, which
-		// the loop over the groups has listed already.
+		// the loop over the groups has listed already. The rest are numbered as
+		// in the flow file, where the group is not part of the node's list.
 		own := node.Transitions[min(len(f.TransitionGroups[node.IncludeTransitions]), len(node.Transitions)):]
 		for idx, tr := range own {
 			add(fmt.Sprintf("node %q transitions[%d]", nodeID, idx), tr.Action)
