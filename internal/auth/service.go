@@ -22,29 +22,78 @@ func New(ctx context.Context, database *sql.DB, defaults ...Rank) (*Service, err
 	return &Service{repo: NewRepository(database)}, nil
 }
 
-// CheckPermission reports whether user is registered with a rank that may run
-// command. An unregistered user is denied without an error.
+// CheckPermission reports whether user may run command in a direct chat. It is
+// Authorize without a group, for the legacy handler in pkg/commands. It is
+// false with any error.
 func (s *Service) CheckPermission(ctx context.Context, user, command string) (bool, error) {
-	err := ValidateCommand(command)
+	decision, err := s.Authorize(ctx, user, "", command)
 	if err != nil {
 		return false, err
+	}
+
+	return decision == Allowed, nil
+}
+
+// Decision is the outcome of [Service.Authorize]. Its zero value is Undecided,
+// so a Decision nobody set never grants a command.
+type Decision int
+
+const (
+	// Undecided is what Authorize returns with an error: nothing was decided.
+	Undecided Decision = iota
+	Allowed
+	// UserNotRegistered means the user has no rank.
+	UserNotRegistered
+	// RankLacksCommand means the user's rank does not list the command.
+	RankLacksCommand
+	// GroupNotRegistered means the command was sent in a group that is not
+	// registered and active.
+	GroupNotRegistered
+)
+
+// Authorize decides whether user may run command. group is the group the
+// command was sent in, or "" for a direct chat, which needs no registration.
+// A denial is a Decision, not an error; the checks run in the order of the
+// constants, so an unregistered user in an unregistered group is told about
+// the user.
+func (s *Service) Authorize(ctx context.Context, user, group, command string) (Decision, error) {
+	err := ValidateCommand(command)
+	if err != nil {
+		return Undecided, err
 	}
 
 	found, err := s.repo.GetUser(ctx, user)
 	if errors.Is(err, ErrUserNotFound) {
-		return false, nil
+		return UserNotRegistered, nil
 	}
 
 	if err != nil {
-		return false, err
+		return Undecided, err
 	}
 
 	rank, err := s.repo.GetRank(ctx, found.Rank)
 	if err != nil {
-		return false, err
+		return Undecided, err
 	}
 
-	return rank.HasCommand(command), nil
+	if !rank.HasCommand(command) {
+		return RankLacksCommand, nil
+	}
+
+	if group == "" {
+		return Allowed, nil
+	}
+
+	_, err = s.repo.GetGroup(ctx, group)
+	if errors.Is(err, ErrGroupNotRegistered) {
+		return GroupNotRegistered, nil
+	}
+
+	if err != nil {
+		return Undecided, err
+	}
+
+	return Allowed, nil
 }
 
 func (s *Service) RegisterUser(ctx context.Context, userID, rankName, registeredBy string) error {

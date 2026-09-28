@@ -6,8 +6,9 @@
 // The owner rank always exists and holds "*"; the app passes its other ranks to
 // [New].
 //
-// [Service.CheckPermission] allows a command when the user is registered and
-// the user's rank lists it. [Service.SeedOwners] registers the JIDs from
+// [Service.Authorize] allows a command when the user is registered, the user's
+// rank lists it, and, in a group, the group is registered. It names the reason
+// when it denies. [Service.SeedOwners] registers the JIDs from
 // BOTEX_OWNER_JIDS as owners on every start, without touching a user that
 // already exists: one with another rank is reported as skipped and a
 // deactivated one as inactive.
