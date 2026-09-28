@@ -72,3 +72,36 @@ Every way `Run` can end passes through `stopping` and then one function,
 4. A session end that has happened by the time `Run` reaches `result` is
    reported and returned, even when the caller's context was cancelled at the
    same moment.
+
+## The command router (`internal/command`)
+
+`Router.Handle` asks `Permissions.Authorize(user, group, command)` once, where
+`group` is the chat of a group message and empty for a direct chat.
+`auth.Service` answers with a `Decision`, checking in this order: the user is
+registered, the user's rank lists the command, the group is registered and
+active. The first failure names the reason in the 🚫 notice. Direct chats need
+no registration. A group message with no group ID is an error, so a missing ID
+cannot skip the group check.
+
+## The latex command (`internal/latex`)
+
+`Run` refuses input over `MaxLength` characters, then renders one typst document
+through `typst.Runner`: `#mitex(read("input.tex"))`, where `input.tex` is the
+fixed physics-macro preamble followed by the user's code. mitex 0.2.7 is
+embedded and extracted once by `New` to a private directory that typst reads as
+its package path; `Close` removes it.
+
+A render fails in one of four ways, and each is answered with a short text and
+returned, so the router reacts ❌:
+
+| Cause                                           | Reply                               |
+| ----------------------------------------------- | ----------------------------------- |
+| `typst.ErrLimit` (deadline, kill signal, OOM)   | took too long or too many resources |
+| mitex's WASM trap (`unreachable`)               | the same                            |
+| `typst.ErrTooLarge` (pixels or bytes)           | too large to send                   |
+| `*typst.RenderError` (a mitex or typst message) | the first line of the message       |
+
+A macro that expands forever (`\newcommand{\x}{\x\x}\x`) allocates until mitex's
+WASM heap cannot grow, which the data limit turns into the trap, so the trap is
+reported as a limit. Macros that call each other expand without allocating and
+end at the deadline.
