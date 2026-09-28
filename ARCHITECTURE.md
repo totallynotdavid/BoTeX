@@ -16,11 +16,20 @@ of fields shared between goroutines. They all live on `Bot`.
 | `ended`         | `end`, first call only                                 | `Run`, every `Chat` method, through `Chat.ended` | `mu`                        |
 | `handlers`      | `spawn` adds, handler goroutine calls `Done`           | `Run` waits                                      | `Add` under `mu`            |
 | `slots`         | connection goroutine takes, handler goroutine releases | both                                             | channel                     |
+| `refusals`      | connection goroutine takes, reply goroutine releases   | both                                             | channel                     |
 
 `slots` holds one token per running `Handle`. The connection goroutine takes a
 token without blocking and drops the message as `busy` when none is free. The
 handler releases its token when `Handle` returns. If `spawn` refuses because the
 runtime stopped, the connection goroutine releases it instead.
+
+A refused message, whether over the cap or over the rate limit, is recorded as
+dropped. `refusals` holds one token per running reply to it, apart from `slots`,
+so a flood cannot take a place from real work or multiply outbound traffic. In
+`refuse`, the connection goroutine takes a token without blocking and drops the
+message with no reply when none is free. The reply goroutine releases its token
+when it finishes. If `spawn` refuses because the runtime stopped, `refuse`
+releases it instead.
 
 ### States
 

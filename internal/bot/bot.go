@@ -23,6 +23,14 @@ const (
 	// have been told to stop.
 	shutdownGrace = 10 * time.Second
 
+	// refusalSlots caps the replies to refused messages that run at once. A
+	// reply is at most two sends, so a flood puts at most eight in flight.
+	// That is fewer than the sends the handlers of DefaultMaxInFlight
+	// messages can start, and enough to answer a small burst of refusals
+	// without dropping any. The size is fixed so that raising MaxInFlight
+	// does not raise what a flood can cause.
+	refusalSlots = 4
+
 	rateLimitReaction = "⚠️"
 	busyNotice        = "Too many concurrent requests. Please try again later."
 )
@@ -61,7 +69,9 @@ type Options struct {
 	// Recorder receives the runtime's events. Nil logs them at debug level.
 	Recorder Recorder
 	// MaxInFlight caps concurrent Handle calls. A message that arrives at the
-	// cap is dropped with a notice. DefaultMaxInFlight if not positive.
+	// cap is dropped, and answered with a notice only while fewer than four
+	// replies to refused messages are running. The same holds for a message
+	// the Limiter refuses. DefaultMaxInFlight if not positive.
 	MaxInFlight int
 }
 
@@ -74,6 +84,9 @@ type Bot struct {
 	rec    Recorder
 	grace  time.Duration
 	slots  chan struct{}
+	// refusals holds one token per running reply to a refused message. A
+	// refusal that finds it full is dropped without a reply.
+	refusals chan struct{}
 
 	started atomic.Bool
 
@@ -113,6 +126,8 @@ func New(client Client, app App, log *slog.Logger, opts Options) *Bot {
 		rec:    rec,
 		grace:  shutdownGrace,
 		slots:  make(chan struct{}, opts.MaxInFlight),
+
+		refusals: make(chan struct{}, refusalSlots),
 	}
 }
 
@@ -215,7 +230,7 @@ func (b *Bot) onMessage(msg Message) {
 		result := b.opts.Limiter.Check(string(msg.User))
 		if !result.Allowed {
 			b.drop(msg, dropRateLimited)
-			b.spawn(func(ctx context.Context) { b.rateLimited(ctx, chat, result) })
+			b.refuse(func(ctx context.Context) { b.rateLimited(ctx, chat, result) })
 
 			return
 		}
@@ -225,7 +240,7 @@ func (b *Bot) onMessage(msg Message) {
 	case b.slots <- struct{}{}:
 	default:
 		b.drop(msg, dropBusy)
-		b.spawn(func(ctx context.Context) { b.busy(ctx, chat) })
+		b.refuse(func(ctx context.Context) { b.busy(ctx, chat) })
 
 		return
 	}
@@ -280,6 +295,26 @@ func (b *Bot) spawn(work func(ctx context.Context)) bool {
 	}()
 
 	return true
+}
+
+// refuse runs a reply to a refused message on its own goroutine. Refusals have
+// their own bound, apart from slots, so a flood cannot take a place from real
+// work. When the bound is full, or the runtime has stopped, there is no reply.
+func (b *Bot) refuse(reply func(ctx context.Context)) {
+	select {
+	case b.refusals <- struct{}{}:
+	default:
+		return
+	}
+
+	started := b.spawn(func(ctx context.Context) {
+		defer func() { <-b.refusals }()
+
+		reply(ctx)
+	})
+	if !started {
+		<-b.refusals
+	}
 }
 
 func (b *Bot) handle(ctx context.Context, chat *Chat, msg Message) {

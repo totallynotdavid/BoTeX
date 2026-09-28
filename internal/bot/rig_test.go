@@ -18,6 +18,10 @@ const (
 	group bot.JID = "120363000000000000@g.us"
 
 	wait = 5 * time.Second
+
+	// Reasons recorded with message_dropped.
+	reasonBusy        = "busy"
+	reasonRateLimited = "rate_limited"
 )
 
 type appFunc func(ctx context.Context, m bot.Message, c *bot.Chat) error
@@ -116,6 +120,8 @@ type rig struct {
 	logs   *logs
 	bot    *bot.Bot
 
+	// stop cancels the context Run was given.
+	stop    context.CancelFunc
 	stopped chan struct{}
 	err     error // Run's result, set before stopped is closed
 }
@@ -124,11 +130,21 @@ type rig struct {
 func start(t *testing.T, app bot.App, opts bot.Options) *rig {
 	t.Helper()
 
+	return startWrapped(t, app, opts, func(client *fake.Client) bot.Client { return client })
+}
+
+// startWrapped is start with the Bot talking to wrap(client), so a test can
+// change how the connection behaves.
+func startWrapped(t *testing.T, app bot.App, opts bot.Options, wrap func(*fake.Client) bot.Client) *rig {
+	t.Helper()
+
 	env := &rig{client: fake.New(), rec: &recorder{}, logs: &logs{}, stopped: make(chan struct{})}
 	opts.Recorder = env.rec
-	env.bot = bot.New(env.client, app, slog.New(env.logs), opts)
+	env.bot = bot.New(wrap(env.client), app, slog.New(env.logs), opts)
 
 	ctx, cancel := context.WithCancel(t.Context())
+	env.stop = cancel
+
 	t.Cleanup(func() {
 		cancel()
 		env.wait(t)

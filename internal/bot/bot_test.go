@@ -130,7 +130,7 @@ func TestRateLimitReactsAndNotifiesOncePerWindow(t *testing.T) {
 	})
 	eventually(t, "both allowed messages", func() bool { return handled.Load() == 2 })
 
-	if reasons := env.rec.reasons(); !slices.Equal(reasons, []string{"rate_limited", "rate_limited"}) {
+	if reasons := env.rec.reasons(); !slices.Equal(reasons, []string{reasonRateLimited, reasonRateLimited}) {
 		t.Errorf("dropped for %v, want two rate_limited", reasons)
 	}
 
@@ -184,7 +184,7 @@ func TestMaxInFlightHolds(t *testing.T) {
 
 	const (
 		limit    = 2
-		messages = 8
+		messages = limit + bot.RefusalSlots // every refusal fits its bound and is answered
 	)
 
 	var (
@@ -217,7 +217,7 @@ func TestMaxInFlightHolds(t *testing.T) {
 	eventually(t, "the slots to fill", func() bool { return load.running.Load() == limit })
 
 	reasons := env.rec.reasons()
-	if len(reasons) != messages-limit || slices.ContainsFunc(reasons, func(s string) bool { return s != "busy" }) {
+	if len(reasons) != messages-limit || slices.ContainsFunc(reasons, func(s string) bool { return s != reasonBusy }) {
 		t.Errorf("dropped for %v, want %d busy", reasons, messages-limit)
 	}
 
@@ -235,6 +235,118 @@ func TestMaxInFlightHolds(t *testing.T) {
 	if got := load.peak.Load(); got > limit {
 		t.Errorf("%d handlers ran at once, limit %d", got, limit)
 	}
+}
+
+// blockedReact is a Client whose React holds until release is closed, and
+// which counts how many Reacts are held at once.
+type blockedReact struct {
+	bot.Client
+
+	release chan struct{}
+	load    gauge
+}
+
+func (c *blockedReact) React(ctx context.Context, msg bot.Message, emoji string) error {
+	c.load.enter()
+	defer c.load.exit()
+
+	<-c.release
+
+	return c.Client.React(ctx, msg, emoji) //nolint:wrapcheck // a test double passes the fake's result through.
+}
+
+func TestRefusalRepliesAreBounded(t *testing.T) {
+	t.Parallel()
+
+	const (
+		limit   = 2
+		refused = bot.RefusalSlots + 6
+	)
+
+	cases := []struct {
+		name   string
+		opts   bot.Options
+		reason string
+		// handled is how many messages reach the app, so how many are not refused.
+		handled int
+		// sender is who sends message i.
+		sender func(i int) bot.JID
+	}{
+		{
+			name:    "busy",
+			opts:    bot.Options{MaxInFlight: limit},
+			reason:  reasonBusy,
+			handled: limit,
+			sender:  func(i int) bot.JID { return bot.JID(fmt.Sprintf("519000010%02d@s.whatsapp.net", i)) },
+		},
+		{
+			name:    "rate limited",
+			opts:    bot.Options{Limiter: hourlyLimiter(t, 1)},
+			reason:  reasonRateLimited,
+			handled: 1,
+			sender:  func(int) bot.JID { return alice },
+		},
+	}
+
+	for _, scenario := range cases {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+
+			release := make(chan struct{})
+			app := appFunc(func(context.Context, bot.Message, *bot.Chat) error {
+				<-release
+
+				return nil
+			})
+
+			var held *blockedReact
+
+			env := startWrapped(t, app, scenario.opts, func(client *fake.Client) bot.Client {
+				held = &blockedReact{Client: client, release: release}
+
+				return held
+			})
+
+			for i := range scenario.handled + refused {
+				env.client.Deliver(direct(scenario.sender(i), "!flood"))
+			}
+
+			// The refusals beyond the bound are decided on the delivering goroutine.
+			reasons := env.rec.reasons()
+			if len(reasons) != refused || slices.ContainsFunc(reasons, func(s string) bool { return s != scenario.reason }) {
+				t.Errorf("dropped for %v, want %d %s", reasons, refused, scenario.reason)
+			}
+
+			eventually(t, "the refusal replies to fill", func() bool { return held.load.running.Load() >= bot.RefusalSlots })
+
+			// A reply that was refused a place would show up as one more Reacts
+			// in flight. Give it the chance to.
+			time.Sleep(50 * time.Millisecond)
+
+			if got := held.load.peak.Load(); got != bot.RefusalSlots {
+				t.Errorf("%d refusal replies ran at once, want %d", got, bot.RefusalSlots)
+			}
+
+			env.stop()
+			close(release)
+
+			err := env.result(t)
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("Run() error = %v, want context.Canceled", err)
+			}
+		})
+	}
+}
+
+func hourlyLimiter(t *testing.T, requests int) *ratelimit.Limiter {
+	t.Helper()
+
+	limiter, err := ratelimit.NewLimiter(requests, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return limiter
 }
 
 func TestHandlerOutcomeIsRecorded(t *testing.T) {
