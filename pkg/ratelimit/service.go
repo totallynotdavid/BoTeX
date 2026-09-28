@@ -8,8 +8,8 @@ import (
 
 	"go.mau.fi/whatsmeow/types"
 
-	"botex/pkg/logger"
-	"botex/pkg/message"
+	"github.com/totallynotdavid/botkit/pkg/logger"
+	"github.com/totallynotdavid/botkit/pkg/message"
 )
 
 var (

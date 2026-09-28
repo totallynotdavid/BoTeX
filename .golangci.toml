@@ -38,12 +38,10 @@ version = "2"
       check-type-assertions = true
       check-blank = true
 
-    [linters.settings.depguard.rules.main]
-      list-mode = "lax"
-      allow = [
-        "botex/pkg/logger",
-        "botex/pkg/message",
-        "go.mau.fi/whatsmeow/types"
+    [linters.settings.depguard.rules.whatsmeow]
+      files = ["**/internal/**", "!**/internal/whatsapp/*.go"]
+      deny = [
+        { pkg = "go.mau.fi/whatsmeow", desc = "only internal/whatsapp talks to WhatsApp; use the bot package types" }
       ]
 
     [linters.settings.revive]
@@ -54,9 +52,9 @@ version = "2"
 [formatters]
   enable = ["gofumpt", "goimports", "gci"]
   [formatters.settings.gofumpt]
-    module-path = "botex"
+    module-path = "github.com/totallynotdavid/botkit"
   [formatters.settings.gci]
-    sections = ["standard", "default", "prefix(botex)"]
+    sections = ["standard", "default", "prefix(github.com/totallynotdavid/botkit)"]
 
 [run]
   timeout = "5m"

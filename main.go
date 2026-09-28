@@ -16,11 +16,11 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 
-	"botex/pkg/auth"
-	"botex/pkg/commands"
-	"botex/pkg/config"
-	"botex/pkg/logger"
-	"botex/pkg/timing"
+	"github.com/totallynotdavid/botkit/pkg/auth"
+	"github.com/totallynotdavid/botkit/pkg/commands"
+	"github.com/totallynotdavid/botkit/pkg/config"
+	"github.com/totallynotdavid/botkit/pkg/logger"
+	"github.com/totallynotdavid/botkit/pkg/timing"
 )
 
 const (

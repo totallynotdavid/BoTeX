@@ -7,7 +7,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"botex/pkg/auth"
+	"github.com/totallynotdavid/botkit/pkg/auth"
 )
 
 func newTestDB(t *testing.T) *sql.DB {

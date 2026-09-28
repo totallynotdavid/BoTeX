@@ -3,8 +3,8 @@ package timing
 import (
 	"strings"
 
-	"botex/pkg/config"
-	"botex/pkg/logger"
+	"github.com/totallynotdavid/botkit/pkg/config"
+	"github.com/totallynotdavid/botkit/pkg/logger"
 )
 
 func NewTrackerFromConfig(cfg *config.Config, log *logger.Logger) *Tracker {

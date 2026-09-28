@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"botex/pkg/logger"
+	"github.com/totallynotdavid/botkit/pkg/logger"
 )
 
 type Level int

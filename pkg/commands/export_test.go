@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"botex/pkg/config"
-	"botex/pkg/logger"
-	"botex/pkg/message"
-	"botex/pkg/timing"
+	"github.com/totallynotdavid/botkit/pkg/config"
+	"github.com/totallynotdavid/botkit/pkg/logger"
+	"github.com/totallynotdavid/botkit/pkg/message"
+	"github.com/totallynotdavid/botkit/pkg/timing"
 )
 
 // Exported seams for the black-box tests in latex_test.go (package

@@ -1,7 +1,7 @@
 package logger
 
 import (
-	"botex/pkg/util"
+	"github.com/totallynotdavid/botkit/pkg/util"
 )
 
 type Config struct {

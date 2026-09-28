@@ -7,9 +7,9 @@ import (
 
 	"go.mau.fi/whatsmeow"
 
-	"botex/pkg/config"
-	"botex/pkg/logger"
-	"botex/pkg/message"
+	"github.com/totallynotdavid/botkit/pkg/config"
+	"github.com/totallynotdavid/botkit/pkg/logger"
+	"github.com/totallynotdavid/botkit/pkg/message"
 )
 
 const (

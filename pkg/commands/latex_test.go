@@ -13,10 +13,10 @@ import (
 
 	"go.mau.fi/whatsmeow/types"
 
-	"botex/pkg/commands"
-	"botex/pkg/config"
-	"botex/pkg/logger"
-	"botex/pkg/message"
+	"github.com/totallynotdavid/botkit/pkg/commands"
+	"github.com/totallynotdavid/botkit/pkg/config"
+	"github.com/totallynotdavid/botkit/pkg/logger"
+	"github.com/totallynotdavid/botkit/pkg/message"
 )
 
 func newTestLogger(t *testing.T) *logger.Logger {

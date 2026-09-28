@@ -9,11 +9,11 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 
-	"botex/pkg/auth"
-	"botex/pkg/commands"
-	"botex/pkg/config"
-	"botex/pkg/logger"
-	"botex/pkg/message"
+	"github.com/totallynotdavid/botkit/pkg/auth"
+	"github.com/totallynotdavid/botkit/pkg/commands"
+	"github.com/totallynotdavid/botkit/pkg/config"
+	"github.com/totallynotdavid/botkit/pkg/logger"
+	"github.com/totallynotdavid/botkit/pkg/message"
 )
 
 type fakeCommand struct {

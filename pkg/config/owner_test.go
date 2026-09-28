@@ -3,7 +3,7 @@ package config_test
 import (
 	"testing"
 
-	"botex/pkg/config"
+	"github.com/totallynotdavid/botkit/pkg/config"
 )
 
 func TestParseOwnerJIDs_Empty(t *testing.T) {

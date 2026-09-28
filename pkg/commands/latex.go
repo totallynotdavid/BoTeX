@@ -14,10 +14,10 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 
-	"botex/pkg/config"
-	"botex/pkg/logger"
-	"botex/pkg/message"
-	"botex/pkg/timing"
+	"github.com/totallynotdavid/botkit/pkg/config"
+	"github.com/totallynotdavid/botkit/pkg/logger"
+	"github.com/totallynotdavid/botkit/pkg/message"
+	"github.com/totallynotdavid/botkit/pkg/timing"
 )
 
 const (

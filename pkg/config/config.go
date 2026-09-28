@@ -8,8 +8,8 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"botex/pkg/logger"
-	"botex/pkg/util"
+	"github.com/totallynotdavid/botkit/pkg/logger"
+	"github.com/totallynotdavid/botkit/pkg/util"
 )
 
 const (
