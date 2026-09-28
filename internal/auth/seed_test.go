@@ -61,13 +61,13 @@ func TestSeedOwnersGrantsFullAccess(t *testing.T) {
 	}
 
 	for _, command := range []string{cmdHelp, cmdLatex, "register_user", "anything"} {
-		allowed, err := service.CheckPermission(t.Context(), ownerJID, command)
+		decision, err := service.Authorize(t.Context(), ownerJID, "", command)
 		if err != nil {
-			t.Fatalf("CheckPermission(%q): %v", command, err)
+			t.Fatalf("Authorize(%q): %v", command, err)
 		}
 
-		if !allowed {
-			t.Errorf("owner denied %q", command)
+		if decision != auth.Allowed {
+			t.Errorf("owner denied %q: %v", command, decision)
 		}
 	}
 }

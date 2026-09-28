@@ -8,15 +8,17 @@ import (
 	"github.com/totallynotdavid/botkit/internal/auth"
 )
 
-func TestCheckPermission(t *testing.T) {
+func TestAuthorize(t *testing.T) {
 	t.Parallel()
 
 	service, _ := newService(t)
 
 	const (
-		admin   = "15550000001@s.whatsapp.net"
-		user    = "15550000002@s.whatsapp.net"
-		unknown = "15550000003@s.whatsapp.net"
+		admin           = "15550000001@s.whatsapp.net"
+		user            = "15550000002@s.whatsapp.net"
+		unknown         = "15550000003@s.whatsapp.net"
+		registeredGroup = "120363000000000001@g.us"
+		otherGroup      = "120363000000000002@g.us"
 	)
 
 	for jid, rank := range map[string]string{admin: rankAdmin, user: rankUser} {
@@ -26,44 +28,96 @@ func TestCheckPermission(t *testing.T) {
 		}
 	}
 
+	err := service.RegisterGroup(t.Context(), registeredGroup, admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	cases := []struct {
 		name    string
 		jid     string
+		group   string
 		command string
-		want    bool
+		want    auth.Decision
 	}{
-		{"rank lists command", admin, cmdLatex, true},
-		{"rank lacks command", user, cmdLatex, false},
-		{"rank lists help", user, cmdHelp, true},
-		{"unregistered user", unknown, cmdHelp, false},
+		{"rank lists command", admin, "", cmdLatex, auth.Allowed},
+		{"rank lacks command", user, "", cmdLatex, auth.RankLacksCommand},
+		{"rank lists help", user, "", cmdHelp, auth.Allowed},
+		{"unregistered user", unknown, "", cmdHelp, auth.UserNotRegistered},
+		{"registered group", user, registeredGroup, cmdHelp, auth.Allowed},
+		{"unregistered group", user, otherGroup, cmdHelp, auth.GroupNotRegistered},
+		{"unregistered user beats unregistered group", unknown, otherGroup, cmdHelp, auth.UserNotRegistered},
+		{"rank beats unregistered group", user, otherGroup, cmdLatex, auth.RankLacksCommand},
 	}
 
 	for _, scenario := range cases {
 		t.Run(scenario.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := service.CheckPermission(t.Context(), scenario.jid, scenario.command)
+			got, err := service.Authorize(t.Context(), scenario.jid, scenario.group, scenario.command)
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			if got != scenario.want {
-				t.Fatalf("CheckPermission(%q, %q) = %v, want %v", scenario.jid, scenario.command, got, scenario.want)
+				t.Fatalf("Authorize(%q, %q, %q) = %v, want %v", scenario.jid, scenario.group, scenario.command, got, scenario.want)
 			}
 		})
 	}
 }
 
-func TestCheckPermissionRejectsInvalidCommand(t *testing.T) {
+func TestAuthorizeRejectsInvalidCommand(t *testing.T) {
 	t.Parallel()
 
 	service, _ := newService(t)
 
 	for _, command := range []string{"", "no spaces", "semi;colon"} {
-		_, err := service.CheckPermission(t.Context(), "15550000001@s.whatsapp.net", command)
+		_, err := service.Authorize(t.Context(), "15550000001@s.whatsapp.net", "", command)
 		if !errors.Is(err, auth.ErrInvalidInput) {
-			t.Errorf("CheckPermission(%q) error = %v, want ErrInvalidInput", command, err)
+			t.Errorf("Authorize(%q) error = %v, want ErrInvalidInput", command, err)
 		}
+	}
+}
+
+// A lookup that fails must not grant the command: the decision is not Allowed
+// and the legacy bool is false, so a caller reading either one first is safe.
+func TestAuthorizeFailsClosedWhenTheLookupFails(t *testing.T) {
+	t.Parallel()
+
+	service, database := newService(t)
+
+	const admin = "15550000001@s.whatsapp.net"
+
+	err := service.RegisterUser(t.Context(), admin, rankAdmin, "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = database.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decision, err := service.Authorize(t.Context(), admin, "", cmdLatex)
+	if err == nil {
+		t.Fatal("Authorize on a closed database succeeded, want an error")
+	}
+
+	if decision == auth.Allowed {
+		t.Errorf("Authorize decision = Allowed with error %v", err)
+	}
+
+	if decision != auth.Undecided {
+		t.Errorf("Authorize decision = %v, want Undecided", decision)
+	}
+
+	allowed, err := service.CheckPermission(t.Context(), admin, cmdLatex)
+	if err == nil {
+		t.Fatal("CheckPermission on a closed database succeeded, want an error")
+	}
+
+	if allowed {
+		t.Errorf("CheckPermission = true with error %v", err)
 	}
 }
 
