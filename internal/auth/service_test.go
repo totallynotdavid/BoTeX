@@ -110,15 +110,6 @@ func TestAuthorizeFailsClosedWhenTheLookupFails(t *testing.T) {
 	if decision != auth.Undecided {
 		t.Errorf("Authorize decision = %v, want Undecided", decision)
 	}
-
-	allowed, err := service.CheckPermission(t.Context(), admin, cmdLatex)
-	if err == nil {
-		t.Fatal("CheckPermission on a closed database succeeded, want an error")
-	}
-
-	if allowed {
-		t.Errorf("CheckPermission = true with error %v", err)
-	}
 }
 
 func TestNewStoresDefaultRanksOnce(t *testing.T) {

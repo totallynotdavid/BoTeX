@@ -22,18 +22,6 @@ func New(ctx context.Context, database *sql.DB, defaults ...Rank) (*Service, err
 	return &Service{repo: NewRepository(database)}, nil
 }
 
-// CheckPermission reports whether user may run command in a direct chat. It is
-// Authorize without a group, for the legacy handler in pkg/commands. It is
-// false with any error.
-func (s *Service) CheckPermission(ctx context.Context, user, command string) (bool, error) {
-	decision, err := s.Authorize(ctx, user, "", command)
-	if err != nil {
-		return false, err
-	}
-
-	return decision == Allowed, nil
-}
-
 // Decision is the outcome of [Service.Authorize]. Its zero value is Undecided,
 // so a Decision nobody set never grants a command.
 type Decision int

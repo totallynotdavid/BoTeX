@@ -9,7 +9,7 @@
 // [Service.Authorize] allows a command when the user is registered, the user's
 // rank lists it, and, in a group, the group is registered. It names the reason
 // when it denies. [Service.SeedOwners] registers the JIDs from
-// BOTEX_OWNER_JIDS as owners on every start, without touching a user that
+// BOTKIT_OWNER_JIDS as owners on every start, without touching a user that
 // already exists: one with another rank is reported as skipped and a
 // deactivated one as inactive.
 package auth
