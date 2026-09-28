@@ -10,17 +10,29 @@ typst = "0.15.1"
 description = "Install Go dependencies"
 run = ["go mod download", "go mod tidy"]
 
-[tasks.dev]
+[tasks."dev:latex"]
 description = "Start the latex bot locally"
 run = "go run ./cmd/latex"
+
+[tasks."dev:flow"]
+description = "Start the flow bot locally"
+run = "go run ./cmd/flow"
 
 [tasks.test]
 description = "Run all tests"
 run = "go test -race ./..."
 
-[tasks.build]
+[tasks."build:latex"]
 description = "Build the latex bot into bin/"
 run = "go build -o bin/botkit-latex ./cmd/latex"
+
+[tasks."build:flow"]
+description = "Build the flow bot into bin/"
+run = "go build -o bin/botkit-flow ./cmd/flow"
+
+[tasks.build]
+description = "Build both bots into bin/"
+depends = ["build:latex", "build:flow"]
 
 [tasks.lint]
 description = "Format and lint the code"
@@ -30,6 +42,14 @@ run = [
   "golangci-lint run --fix",
 ]
 
-# [tasks.ci]
-# description = "Run all CI tasks"
-# depends = ["build", "lint", "test"]
+[tasks."lint:check"]
+description = "Check the formatting and lint the code without changing it"
+run = [
+  "golangci-lint config verify",
+  "golangci-lint fmt --diff",
+  "golangci-lint run",
+]
+
+[tasks.ci]
+description = "Run all CI tasks"
+depends = ["build", "lint:check", "test"]
