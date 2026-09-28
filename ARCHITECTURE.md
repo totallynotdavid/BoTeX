@@ -220,6 +220,10 @@ end at the deadline.
 
 - `Name`, which starts its messages;
 - `Ranks`, the ranks its users hold besides `owner`;
+- `RateLimit`, its own default for the rate-limit settings, which the
+  `BOTKIT_RATE_LIMIT_*` keys still override. The zero value keeps the shared
+  default, so `cmd/latex` sets nothing and `cmd/flow` allows a customer walking
+  a menu more messages a minute;
 - `Configure`, which reads the bot's own settings from the environment and
   returns a `Build` function. `Build` makes the app over the open database and
   returns a `cli.Built`: the `bot.App`, whether it takes groups, and a close
