@@ -1,10 +1,12 @@
 package fake_test
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/totallynotdavid/botkit/internal/bot"
 	"github.com/totallynotdavid/botkit/internal/whatsapp/fake"
@@ -264,6 +266,118 @@ func TestHandlerMaySendConcurrently(t *testing.T) {
 
 	if count := len(client.Sent()); count != deliveries {
 		t.Errorf("recorded %d sends, want %d", count, deliveries)
+	}
+}
+
+func TestWaitConnectedFollowsConnectAndDisconnect(t *testing.T) {
+	t.Parallel()
+
+	client := fake.New()
+
+	waiting, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+
+	err := client.WaitConnected(waiting)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitConnected() before Connect = %v, want deadline exceeded", err)
+	}
+
+	connect(t, client)
+
+	err = client.WaitConnected(t.Context())
+	if err != nil {
+		t.Fatalf("WaitConnected() after Connect = %v", err)
+	}
+
+	client.Disconnect()
+
+	waiting, cancel = context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+
+	err = client.WaitConnected(waiting)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitConnected() after Disconnect = %v, want deadline exceeded", err)
+	}
+}
+
+func TestStallConnectBlocksUntilContextIsDone(t *testing.T) {
+	t.Parallel()
+
+	client := fake.New()
+	client.StallConnect()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	result := make(chan error, 1)
+
+	go func() { result <- client.Connect(ctx, func(bot.Event) {}) }()
+
+	select {
+	case err := <-result:
+		t.Fatalf("Connect() returned %v before its context was done", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	cancel()
+
+	err := <-result
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Connect() = %v, want context canceled", err)
+	}
+
+	if client.Connected() {
+		t.Error("a stalled Connect left the client connected")
+	}
+}
+
+func TestStalledConnectStillDeliversEvents(t *testing.T) {
+	t.Parallel()
+
+	client := fake.New()
+	client.StallConnect()
+
+	got := make(chan bot.Event, 1)
+	ctx, cancel := context.WithCancel(t.Context())
+	result := make(chan error, 1)
+
+	go func() { result <- client.Connect(ctx, func(evt bot.Event) { got <- evt }) }()
+
+	err := client.WaitDialing(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client.EndSession(bot.LoggedOut, "401")
+
+	if evt, want := <-got, (bot.SessionEnded{Reason: bot.LoggedOut, Detail: "401"}); evt != want {
+		t.Errorf("handler got %#v while dialing, want %#v", evt, want)
+	}
+
+	cancel()
+	<-result
+
+	client.EndSession(bot.Replaced, "")
+
+	if len(got) != 0 {
+		t.Error("an event reached the handler after the dial failed")
+	}
+}
+
+func TestEmitOnConnectReachesHandlerBeforeConnectReturns(t *testing.T) {
+	t.Parallel()
+
+	client := fake.New()
+	client.EmitOnConnect(bot.Connected{}, bot.SessionEnded{Reason: bot.LoggedOut})
+
+	var got []bot.Event
+
+	err := client.Connect(t.Context(), func(evt bot.Event) { got = append(got, evt) })
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []bot.Event{bot.Connected{}, bot.SessionEnded{Reason: bot.LoggedOut}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Connect emitted %v, want %v", got, want)
 	}
 }
 
