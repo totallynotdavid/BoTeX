@@ -213,31 +213,53 @@ WASM heap cannot grow, which the data limit turns into the trap, so the trap is
 reported as a limit. Macros that call each other expand without allocating and
 end at the deadline.
 
-## The latex binary (`cmd/latex`)
+## The binaries (`internal/cli`, `cmd/latex`, `cmd/flow`)
 
-`main` parses the subcommand (`run`, the default, or `pair`), starts a context
-that SIGINT and SIGTERM cancel, and exits with the status `execute` returns. It
-holds no logic of its own.
+`internal/cli` is everything the two binaries share. A binary is a
+`cli.Command`, which is only what makes that bot itself:
 
-`run` in `cmd/latex/run.go` is the wiring, and it takes its settings and a
-function that opens the WhatsApp client, so tests drive it with `whatsapp/fake`.
-In order it:
+- `Name`, which starts its messages;
+- `Ranks`, the ranks its users hold besides `owner`;
+- `Configure`, which reads the bot's own settings from the environment and
+  returns a `Build` function. `Build` makes the app over the open database and
+  returns a `cli.Built`: the `bot.App`, whether it takes groups, and a close
+  function.
+
+`main` in each binary is `cli.Main(botCommand())`. `Main` parses the subcommand
+(`run`, the default, or `pair`), starts a context that SIGINT and SIGTERM
+cancel, and exits with the status of the subcommand. `pair` is described below.
+
+`run` takes its settings and a function that opens the WhatsApp client, so tests
+drive it with `whatsapp/fake`. In order it:
 
 1. opens the SQLite store (`internal/sqlite`);
-2. creates the auth tables with the `user` rank and seeds the owners;
-3. builds the latex command (`internal/latex`) and the rate limiter;
-4. opens the client, which loads the session from the same store;
-5. builds `command.NewRouter("!", auth, latex)` and runs `bot.New(...).Run` with
-   `Options.Groups` on.
+2. creates the auth tables with the command's ranks and seeds the owners;
+3. calls the command's `Build`, which makes the app;
+4. builds the rate limiter and opens the client, which loads the session from
+   the same store;
+5. runs `bot.New(...).Run` with the app, `Built.Groups`, `BOTKIT_OWN_MESSAGES`
+   and `BOTKIT_ALLOW_ONLY` (empty means everyone).
+
+It closes the app and then the store on the way out, and reports what they
+return together with the run's error.
 
 Settings come from `internal/config.Env`: the `BOTKIT_*` keys are read by
-`Env.Shared` and the `LATEX_*` keys by `latex.ConfigFromEnv`. `Env` records
-every malformed value and `Err` reports them together, so a bad `.env` fails
-startup once, naming each key.
+`Env.Shared` and each bot's own keys by its `Configure`. Both are read before
+anything is opened. `Env` records every malformed value and `Err` reports them
+together, so a bad `.env` fails startup once, naming each key.
+
+`cmd/latex` builds `command.NewRouter("!", auth, latex)` with `Groups` on and
+the `user` rank.
+
+`cmd/flow` loads the flow file, or the example built into the binary when
+`FLOW_FILE` is empty, and builds the `flow.Store`, the `flow.Actions` and the
+`flow.App`. It answers direct messages only. A `FLOW_FILE` that cannot be read,
+or a flow that names an action the bot does not have, stops startup with
+status 1.
 
 ### Exit status
 
-`exitStatus` maps what `run` returned:
+`ExitStatus` maps what `run` returned:
 
 | Returned                                                  | Status |
 | --------------------------------------------------------- | ------ |
@@ -253,9 +275,9 @@ process), so the readme's systemd unit lists it in `RestartPreventExitStatus`.
 
 ## Pairing (`internal/whatsapp`)
 
-`Pair` is the only code that shows a QR code or a pairing code, and only
-`cmd/latex pair` calls it. It refuses before opening the store when the phone
-number is malformed or stdin or stdout is not a terminal, and before dialling
-when the store already holds a device. Otherwise it listens on whatsmeow's QR
-channel, prints each code, and returns when the phone confirms, the codes expire
-or WhatsApp rejects the pairing.
+`Pair` is the only code that shows a QR code or a pairing code, and only the
+`pair` subcommand of `internal/cli` calls it. It refuses before opening the
+store when the phone number is malformed or stdin or stdout is not a terminal,
+and before dialling when the store already holds a device. Otherwise it listens
+on whatsmeow's QR channel, prints each code, and returns when the phone
+confirms, the codes expire or WhatsApp rejects the pairing.

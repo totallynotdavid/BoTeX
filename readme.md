@@ -102,6 +102,7 @@ value stops the bot at start and names each key that is wrong.
 | `BOTKIT_RATE_LIMIT_REQUESTS`, `BOTKIT_RATE_LIMIT_PERIOD`, `BOTKIT_RATE_LIMIT_COOLDOWN` | 5, `1m`, `5m`       | Requests per user per period, and notice cooldown |
 | `BOTKIT_MAX_IN_FLIGHT`                                                                 | 10                  | Messages handled at once                          |
 | `BOTKIT_OWN_MESSAGES`                                                                  | `false`             | Answer messages from the bot's own account        |
+| `BOTKIT_ALLOW_ONLY`                                                                    | none                | Answer only these JIDs. Empty answers everyone    |
 | `LATEX_MAX_LENGTH`                                                                     | 1000                | Characters of LaTeX per message                   |
 | `LATEX_MAX_IMAGE_BYTES`                                                                | 5242880             | Largest PNG sent                                  |
 | `LATEX_TIMEOUT`                                                                        | `10s`               | Longest a render runs                             |
