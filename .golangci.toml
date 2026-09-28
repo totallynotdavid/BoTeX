@@ -49,6 +49,13 @@ version = "2"
         { name = "exported", disabled = true }
       ]
 
+  # A flow file is written by hand in snake_case; the rest of the module keeps
+  # tagliatelle's camelCase default.
+  [linters.exclusions]
+    [[linters.exclusions.rules]]
+      path = "internal/flow/fsm/flow.go"
+      linters = ["tagliatelle"]
+
 [formatters]
   enable = ["gofumpt", "goimports", "gci"]
   [formatters.settings.gofumpt]
