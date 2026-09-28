@@ -83,6 +83,62 @@ active. The first failure names the reason in the 🚫 notice. Direct chats need
 no registration. A group message with no group ID is an error, so a missing ID
 cannot skip the group check.
 
+## The conversation flow (`internal/flow`)
+
+The flow keeps what each user has told the bot, so a conversation continues
+where it stopped. `internal/flow/fsm` decides where a message leads. `flow`
+holds the state, applies the actions a transition names, and stores the result.
+
+### Who owns what
+
+`Store` is the only code that reads or writes the `user_state` and
+`conversation_history` tables, and `Store.Turn` is the only way to change a
+user's `State`. Nothing else in the process holds a `State` between messages: a
+handler gets one inside `Turn` and hands it back when `Turn` returns.
+
+### One transition path
+
+`Turn(ctx, user, turn)` runs in this order:
+
+1. It takes the user's lock, waiting for the turn that holds it. A cancelled
+   `ctx` ends the wait with an error and `turn` never runs.
+2. It loads the user's state. A user with no row gets a fresh state with only
+   `UserID` set, so `CurrentNode` is empty.
+3. It calls `turn` with that state. `turn` applies actions, sends replies and
+   returns the messages of the turn for the history.
+4. If `turn` returned nil, it stamps `LastUpdated` with the current time in UTC
+   and writes the state and the messages in one transaction. Either both are
+   stored or neither is.
+5. It releases the lock.
+
+If `turn` or the write fails, nothing is stored and the error comes back
+wrapped. The next turn loads what the last successful one saved.
+
+### Concurrency
+
+`bot.Run` runs each message on its own goroutine, so two messages of one user
+can arrive together. The per-user lock makes their turns run one at a time, so
+neither reads a state the other is about to replace, and replies sent from
+`turn` keep the order of the turns. The lock is in memory, in a map of one entry
+for each user with a turn running or waiting. An entry is removed when its last
+turn ends, so the map does not grow with the number of users.
+
+Turns of different users share no lock and run in parallel. SQLite serializes
+their writes, and `internal/sqlite` sets a busy timeout for that wait.
+
+Two processes on one database are not supported. The lock does not cross
+processes, so their turns for one user could overwrite each other.
+
+### Actions
+
+`Actions` holds the vocabulary a flow file may name, in one table. `Apply` runs
+from it and `Check` reads the same table, so what a flow can name is what runs.
+`Check` reports each unknown action with its place in the flow. It is meant to
+run when the flow loads, so a mistyped action fails at startup and not when a
+user first reaches it. Actions change the `State` or return an error and log
+nothing. Vouchers are saved in a private file, mode 0600, because they show
+payment details.
+
 ## The latex command (`internal/latex`)
 
 `Run` refuses input over `MaxLength` characters, then renders one typst document
