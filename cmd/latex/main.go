@@ -11,133 +11,48 @@ package main
 import (
 	"context"
 	"database/sql"
-	"errors"
-	"flag"
 	"fmt"
 	"log/slog"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
 
-	"github.com/totallynotdavid/botkit/internal/bot"
+	"github.com/totallynotdavid/botkit/internal/auth"
+	"github.com/totallynotdavid/botkit/internal/cli"
+	"github.com/totallynotdavid/botkit/internal/command"
 	"github.com/totallynotdavid/botkit/internal/config"
-	"github.com/totallynotdavid/botkit/internal/sqlite"
-	"github.com/totallynotdavid/botkit/internal/whatsapp"
+	"github.com/totallynotdavid/botkit/internal/latex"
 )
 
-const exitUsage = 2
+const userRankLevel = 100
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	status := execute(ctx, os.Args[1:])
-
-	stop()
-	os.Exit(status)
+	cli.Main(botCommand())
 }
 
-// execute runs the subcommand args name and returns the exit status.
-func execute(ctx context.Context, args []string) int {
-	name, rest := "run", args
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		name, rest = args[0], args[1:]
-	}
-
-	switch name {
-	case "run":
-		return runCommand(ctx, rest)
-	case "pair":
-		return pairCommand(ctx, rest)
-	default:
-		fmt.Fprintf(os.Stderr, "latex: unknown command %q; want run or pair\n", name)
-
-		return exitUsage
+func botCommand() cli.Command {
+	return cli.Command{
+		Name: "latex",
+		Ranks: []auth.Rank{{
+			Name:        "user",
+			Level:       userRankLevel,
+			Commands:    []string{"help", "latex"},
+			Description: "Basic user access",
+		}},
+		Configure: configure,
 	}
 }
 
-func runCommand(ctx context.Context, args []string) int {
-	flags := flag.NewFlagSet("latex run", flag.ContinueOnError)
+func configure(env *config.Env) cli.Build {
+	cfg := latex.ConfigFromEnv(env)
 
-	err := flags.Parse(args)
-	if err != nil || flags.NArg() > 0 {
-		return exitUsage
+	return func(_ context.Context, _ *sql.DB, users *auth.Service, _ *slog.Logger) (cli.Built, error) {
+		renderer, err := latex.New(cfg)
+		if err != nil {
+			return cli.Built{}, fmt.Errorf("set up latex: %w", err)
+		}
+
+		return cli.Built{
+			App:    command.NewRouter("!", users, renderer),
+			Groups: true,
+			Close:  renderer.Close,
+		}, nil
 	}
-
-	cfg, log, err := setup()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "latex:", err)
-
-		return exitFailure
-	}
-
-	err = run(ctx, cfg, log, openWhatsApp)
-
-	status := exitStatus(ctx, err)
-	if status == exitFailure {
-		log.ErrorContext(ctx, "latex bot failed", "error", err)
-	}
-
-	return status
-}
-
-func pairCommand(ctx context.Context, args []string) int {
-	flags := flag.NewFlagSet("latex pair", flag.ContinueOnError)
-	phone := flags.String("phone", "", "link with a pairing code for this number, +<digits>, instead of a QR code")
-
-	err := flags.Parse(args)
-	if err != nil || flags.NArg() > 0 {
-		return exitUsage
-	}
-
-	cfg, log, err := setup()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "latex:", err)
-
-		return exitFailure
-	}
-
-	err = pair(ctx, cfg, log, *phone)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "latex pair:", err)
-
-		return exitFailure
-	}
-
-	return exitOK
-}
-
-func pair(ctx context.Context, cfg settings, log *slog.Logger, phone string) (err error) {
-	database, err := sqlite.Open(ctx, cfg.shared.Store)
-	if err != nil {
-		return fmt.Errorf("open store: %w", err)
-	}
-
-	defer func() {
-		err = errors.Join(err, database.Close())
-	}()
-
-	return whatsapp.Pair(ctx, database, log, whatsapp.PairOptions{Phone: phone, In: os.Stdin, Out: os.Stdout}) //nolint:wrapcheck // Pair's errors already say what failed.
-}
-
-// setup reads the environment and builds the one logger, which writes to
-// stderr at BOTKIT_LOG_LEVEL.
-func setup() (settings, *slog.Logger, error) {
-	cfg, err := readSettings(config.FromEnviron())
-	if err != nil {
-		return settings{}, nil, err
-	}
-
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: cfg.shared.LogLevel}))
-
-	return cfg, log, nil
-}
-
-//nolint:ireturn // openClient's contract is the interface, so tests can supply a fake.
-func openWhatsApp(ctx context.Context, database *sql.DB, log *slog.Logger) (bot.Client, error) {
-	client, err := whatsapp.Open(ctx, database, log)
-	if err != nil {
-		return nil, err //nolint:wrapcheck // run adds the context.
-	}
-
-	return client, nil
 }
