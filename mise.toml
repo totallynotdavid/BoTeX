@@ -1,3 +1,6 @@
+[env]
+_.file = ".env"
+
 [tools]
 go = "1.27.1"
 golangci-lint = "2.14.0"
@@ -8,16 +11,16 @@ description = "Install Go dependencies"
 run = ["go mod download", "go mod tidy"]
 
 [tasks.dev]
-description = "Start the app locally"
-run = "go run ."
+description = "Start the latex bot locally"
+run = "go run ./cmd/latex"
 
 [tasks.test]
 description = "Run all tests"
-run = "go test ./..."
+run = "go test -race ./..."
 
 [tasks.build]
-description = "Build the application"
-run = "go build"
+description = "Build the latex bot into bin/"
+run = "go build -o bin/botkit-latex ./cmd/latex"
 
 [tasks.lint]
 description = "Format and lint the code"
@@ -26,14 +29,6 @@ run = [
   "golangci-lint fmt",
   "golangci-lint run --fix",
 ]
-
-[tasks."test:render"]
-description = "Run the full test suite, including the render-bound tests, inside a disposable image with the real TeX Live/ImageMagick/prlimit toolchain"
-run = """
-docker build -f docker/render-test.Dockerfile -t botex-render-test .
-docker run --rm -v "$PWD":/src -w /src botex-render-test \
-  bash -c 'go build ./... && go vet ./... && go test ./... -v'
-"""
 
 # [tasks.ci]
 # description = "Run all CI tasks"

@@ -8,7 +8,7 @@
 *.db
 *.exe
 
-botex
+/bin/
 
 *.db-shm
 *.db-wal
