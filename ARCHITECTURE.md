@@ -96,6 +96,21 @@ holds the state, applies the actions a transition names, and stores the result.
 user's `State`. Nothing else in the process holds a `State` between messages: a
 handler gets one inside `Turn` and hands it back when `Turn` returns.
 
+Each field of `State` has a known writer:
+
+| Field                | Written by                                                                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `UserID`             | `Store`, when it makes a fresh state for a user with no row                                                                                        |
+| `LastUpdated`        | `Store`, on every save                                                                                                                             |
+| `CurrentNode`        | `App`, inside a turn: the start node on a restart, the node the turn ends on                                                                       |
+| `RepromptCount`      | `App`, inside a turn: reset on a route that is not a fallback, one more on a fallback, reset on a restart                                          |
+| `RequiresHumanAgent` | the `escalate_to_human_agent` action, which `App` runs on the third fallback or a failed action; also `save_payment_voucher` when it gets no image |
+| `UserName`           | `App` on a restart of a new user (the profile name); the `save_user_name` and `clear_user_name` actions                                            |
+| `CourseInterest`     | the `update_lead_interest_beginner` and `update_lead_interest_advanced` actions                                                                    |
+| `SelectedCourseID`   | the `set_selected_course` action                                                                                                                   |
+| `ConsultedPrice`     | the `update_lead_consulted_price` action                                                                                                           |
+| `VoucherPath`        | the `save_payment_voucher` action                                                                                                                  |
+
 ### One transition path
 
 `Turn(ctx, user, turn)` runs in this order:
@@ -104,8 +119,8 @@ handler gets one inside `Turn` and hands it back when `Turn` returns.
    `ctx` ends the wait with an error and `turn` never runs.
 2. It loads the user's state. A user with no row gets a fresh state with only
    `UserID` set, so `CurrentNode` is empty.
-3. It calls `turn` with that state. `turn` applies actions, sends replies and
-   returns the messages of the turn for the history.
+3. It calls `turn` with that state. `turn` applies actions and returns the
+   messages of the turn for the history.
 4. If `turn` returned nil, it stamps `LastUpdated` with the current time in UTC
    and writes the state and the messages in one transaction. Either both are
    stored or neither is.
@@ -118,10 +133,12 @@ wrapped. The next turn loads what the last successful one saved.
 
 `bot.Run` runs each message on its own goroutine, so two messages of one user
 can arrive together. The per-user lock makes their turns run one at a time, so
-neither reads a state the other is about to replace, and replies sent from
-`turn` keep the order of the turns. The lock is in memory, in a map of one entry
-for each user with a turn running or waiting. An entry is removed when its last
-turn ends, so the map does not grow with the number of users.
+neither reads a state the other is about to replace. The lock is in memory, in a
+map of one entry for each user with a turn running or waiting. An entry is
+removed when its last turn ends, so the map does not grow with the number of
+users. The turns are ordered, their replies are not: `App` sends after the lock
+is released, so the replies of two messages sent together can arrive in either
+order.
 
 Turns of different users share no lock and run in parallel. SQLite serializes
 their writes, and `internal/sqlite` sets a busy timeout for that wait.
@@ -133,11 +150,45 @@ processes, so their turns for one user could overwrite each other.
 
 `Actions` holds the vocabulary a flow file may name, in one table. `Apply` runs
 from it and `Check` reads the same table, so what a flow can name is what runs.
-`Check` reports each unknown action with its place in the flow. It is meant to
-run when the flow loads, so a mistyped action fails at startup and not when a
-user first reaches it. Actions change the `State` or return an error and log
-nothing. Vouchers are saved in a private file, mode 0600, because they show
-payment details.
+`Check` reports each unknown action with its place in the flow. `New` runs it,
+so a mistyped action fails at startup and not when a user first reaches it.
+Actions change the `State` or return an error and log nothing. An action that
+downloads media takes the `Downloader` as an argument of `Apply`, because a
+`*bot.Chat` exists only for the message being handled. Vouchers are saved in a
+private file, mode 0600, because they show payment details.
+
+### The app
+
+`App` implements `bot.App` and is the only code that runs a flow. `Handle` does
+one `Store.Turn` for the message's user, and inside it:
+
+1. A user with no state, or whose last message is over a day old, starts over.
+   The bot greets them, enters the start node and runs its action. The name the
+   user gave is kept. The greeting says welcome to someone with at most two
+   messages stored, and welcome back to anyone else.
+2. Media the node does not accept is answered with a request for text, and the
+   turn ends there.
+3. `DetermineNext` picks the route. A route that is not a fallback resets the
+   fallback count. A fallback adds one, and the third in a row escalates to the
+   help node and starts the count over.
+4. The action of the transition runs, then the action of the node entered. When
+   they name the same action it runs once.
+5. The reply is the entered node's message, rendered with the user's name, the
+   greeting and the selected course. It is stored with the inbound message.
+
+An action that fails does not lose the turn. The user is escalated to a person
+and told so, the turn is stored, and `Handle` returns the action's error after
+logging the user, the node and the action. An invalid name is the exception: the
+user is asked again and nothing is returned.
+
+Replies go out after `Turn` returns, so the history never lacks a reply the user
+saw. A reply that fails to send is returned and the turn stays stored. The
+typing delay before each reply waits on `ctx`, so shutdown does not wait for it.
+If `Turn` fails after an action saved a voucher, `Handle` removes the file,
+because no state points to it.
+
+`ConfigFromEnv` reads `FLOW_FILE` (empty means the example flow built into the
+binary), `FLOW_VOUCHER_DIR` and `FLOW_TYPING_DELAY`.
 
 ## The latex command (`internal/latex`)
 
