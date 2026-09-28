@@ -1,0 +1,36 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+
+      - name: Install render toolchain
+        run: |
+          sudo apt-get update
+          xargs -a docker/render-test-packages.txt sudo apt-get install -y --no-install-recommends
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        env:
+          BOTEX_REQUIRE_RENDER_TOOLS: "1"
+        run: go test ./... -v

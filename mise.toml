@@ -26,6 +26,14 @@ run = [
   "golangci-lint run --fix",
 ]
 
+[tasks."test:render"]
+description = "Run the full test suite, including the render-bound tests, inside a disposable image with the real TeX Live/ImageMagick/prlimit toolchain"
+run = """
+docker build -f docker/render-test.Dockerfile -t botex-render-test .
+docker run --rm -v "$PWD":/src -w /src botex-render-test \
+  bash -c 'go build ./... && go vet ./... && go test ./... -v'
+"""
+
 # [tasks.ci]
 # description = "Run all CI tasks"
 # depends = ["build", "lint", "test"]
