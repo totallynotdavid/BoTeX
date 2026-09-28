@@ -229,3 +229,68 @@ func TestRunStartupFailuresExitWithTheirStatus(t *testing.T) {
 		})
 	}
 }
+
+// answerOneAtATime delivers count messages, each after the reply to the one
+// before, so the concurrency cap never refuses one.
+func answerOneAtATime(t *testing.T, client *fake.Client, count int) {
+	t.Helper()
+
+	for i := range count {
+		client.Deliver(bot.Message{Sender: alice, Text: "hola"})
+		waitFor(t, func() bool { return len(client.Sent()) == i+1 })
+	}
+}
+
+func TestRunAllowsTwentyRequestsAMinuteAndTheKeyOverridesIt(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		vars    map[string]string
+		allowed int
+	}{
+		"the flow default":           {allowed: 20},
+		"BOTKIT_RATE_LIMIT_REQUESTS": {vars: map[string]string{config.KeyRateLimitRequests: "3"}, allowed: 3},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, stop := context.WithCancel(t.Context())
+			defer stop()
+
+			vars := map[string]string{}
+			maps.Copy(vars, test.vars)
+
+			client := fake.New()
+			done := run(ctx, environment(t, vars), client)
+
+			err := client.WaitConnected(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			answerOneAtATime(t, client, test.allowed)
+
+			limited := client.Deliver(bot.Message{Sender: alice, Text: "hola"})
+
+			waitFor(t, func() bool { return len(client.Sent()) == test.allowed+1 })
+			stop()
+
+			err = stopped(t, done)
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("Run() error = %v, want context.Canceled", err)
+			}
+
+			reactions := client.Reactions()
+			if len(reactions) != 1 || reactions[0].MessageID != limited.ID {
+				t.Errorf("reactions = %+v, want one on message %s, the one past the limit", reactions, limited.ID)
+			}
+
+			// One reply per allowed message, then the notice.
+			if got := len(client.Sent()); got != test.allowed+1 {
+				t.Errorf("%d messages sent, want %d replies and the rate-limit notice", got, test.allowed)
+			}
+		})
+	}
+}

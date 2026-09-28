@@ -21,6 +21,9 @@ import (
 const (
 	owner bot.JID = "51900000001@s.whatsapp.net"
 	group bot.JID = "120363000000000000@g.us"
+
+	// help is a command every bot answers.
+	help = "!help"
 )
 
 func environment(t *testing.T, vars map[string]string) *config.Env {
@@ -71,11 +74,11 @@ func TestRunAnswersSeededOwnerInDirectChatsAndGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client.Deliver(bot.Message{Sender: owner, Text: "!help"})
+	client.Deliver(bot.Message{Sender: owner, Text: help})
 	waitFor(t, func() bool { return len(client.Sent()) == 1 })
 
 	// Groups reach the router, which refuses one nobody registered.
-	client.Deliver(bot.Message{Sender: owner, Chat: group, Group: true, Text: "!help"})
+	client.Deliver(bot.Message{Sender: owner, Chat: group, Group: true, Text: help})
 	waitFor(t, func() bool { return len(client.Sent()) == 2 })
 
 	sent := client.Sent()
@@ -97,6 +100,58 @@ func TestRunAnswersSeededOwnerInDirectChatsAndGroups(t *testing.T) {
 
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("Run() error = %v, want context.Canceled", err)
+	}
+}
+
+func TestRunAllowsFiveRequestsAMinute(t *testing.T) {
+	t.Parallel()
+
+	const allowed = 5
+
+	ctx, stop := context.WithCancel(t.Context())
+	defer stop()
+
+	client := fake.New()
+	env := environment(t, map[string]string{config.KeyOwners: string(owner)})
+	done := make(chan error, 1)
+
+	go func() {
+		done <- latexcmd.Run(ctx, env, slog.New(slog.DiscardHandler), func(context.Context, *sql.DB, *slog.Logger) (bot.Client, error) {
+			return client, nil
+		})
+	}()
+
+	err := client.WaitConnected(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := range allowed {
+		client.Deliver(bot.Message{Sender: owner, Text: help})
+		waitFor(t, func() bool { return len(client.Sent()) == i+1 })
+	}
+
+	limited := client.Deliver(bot.Message{Sender: owner, Text: help})
+
+	waitFor(t, func() bool { return len(client.Sent()) == allowed+1 })
+	stop()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return")
+	}
+
+	var warned []string
+
+	for _, reaction := range client.Reactions() {
+		if reaction.Emoji == "⚠️" {
+			warned = append(warned, reaction.MessageID)
+		}
+	}
+
+	if len(warned) != 1 || warned[0] != limited.ID {
+		t.Errorf("messages warned about = %v, want only %s, the one past the limit", warned, limited.ID)
 	}
 }
 
