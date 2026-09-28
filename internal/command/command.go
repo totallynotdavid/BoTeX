@@ -35,15 +35,21 @@ type Command interface {
 	Run(ctx context.Context, m bot.Message, args string, c *bot.Chat) error
 }
 
-// Permissions says whether a user may run a command. *auth.Service satisfies
+// ErrGroupWithoutID is returned by Handle for a group message that names no
+// group, which cannot be checked against the registered groups.
+var ErrGroupWithoutID = errors.New("group message without a group")
+
+// Permissions decides whether a user may run a command. group is the group
+// the command was sent in, or "" for a direct chat. *auth.Service satisfies
 // it.
 type Permissions interface {
-	CheckPermission(ctx context.Context, user, command string) (bool, error)
+	Authorize(ctx context.Context, user, group, command string) (auth.Decision, error)
 }
 
 // Router is a bot.App that runs the command a message names, after checking
-// that its sender may. It reacts ✅ when the command succeeds, ❌ when it fails
-// or does not exist, and 🚫 when the sender is not allowed.
+// that its sender may and, in a group, that the group is registered. It reacts
+// ✅ when the command succeeds, ❌ when it fails or does not exist, and 🚫,
+// with the reason, when the sender is not allowed.
 type Router struct {
 	prefix   string
 	perms    Permissions
@@ -79,14 +85,21 @@ func (r *Router) Handle(ctx context.Context, msg bot.Message, chat *bot.Chat) er
 		return r.unknown(ctx, chat, name)
 	}
 
-	allowed, err := r.perms.CheckPermission(ctx, string(msg.User), name)
+	group := ""
+	if msg.Group {
+		group = string(msg.Chat)
+		if group == "" {
+			return ErrGroupWithoutID
+		}
+	}
+
+	decision, err := r.perms.Authorize(ctx, string(msg.User), group, name)
 	if err != nil {
 		return fmt.Errorf("check permission for %q: %w", name, err)
 	}
 
-	if !allowed {
-		return r.reply(ctx, chat, reactionDenied,
-			fmt.Sprintf("You do not have permission to use the `%s%s` command.", r.prefix, name))
+	if decision != auth.Allowed {
+		return r.reply(ctx, chat, reactionDenied, r.denial(decision, name, msg.Group))
 	}
 
 	cmd, found := r.commands[name]
@@ -130,6 +143,25 @@ func (r *Router) parse(text string) (name, args string, ok bool) {
 	}
 
 	return body[:end], strings.TrimSpace(body[end:]), true
+}
+
+// denial tells the sender why a command was refused.
+func (r *Router) denial(decision auth.Decision, name string, inGroup bool) string {
+	switch decision {
+	case auth.UserNotRegistered:
+		if inGroup {
+			return "You must be a registered user to use commands in this group. Please contact an admin."
+		}
+
+		return "You must be a registered user to use commands. Please contact an admin."
+	case auth.GroupNotRegistered:
+		return "This group is not registered for bot usage. Please contact an admin."
+	case auth.RankLacksCommand:
+		return fmt.Sprintf("The command `%s%s` is not available for your rank.", r.prefix, name)
+	case auth.Undecided, auth.Allowed:
+	}
+
+	return fmt.Sprintf("You do not have permission to use the `%s%s` command.", r.prefix, name)
 }
 
 func (r *Router) unknown(ctx context.Context, chat *bot.Chat, name string) error {
