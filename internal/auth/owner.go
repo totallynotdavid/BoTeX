@@ -6,14 +6,15 @@ import (
 	"strings"
 )
 
-var ErrInvalidOwnerJID = errors.New("invalid owner JID")
+var ErrInvalidJID = errors.New("invalid JID")
 
-// ParseOwners parses a comma-separated list of WhatsApp JIDs, as used by
-// BOTKIT_OWNER_JIDS. Blank entries are skipped. Each other entry must be
-// user@server with no whitespace and no device part (":device" or ".device"
-// after the user), which is how message senders are keyed. Anything else fails
-// with ErrInvalidOwnerJID instead of seeding an owner that can never match.
-func ParseOwners(raw string) ([]string, error) {
+// ParseJIDs parses a comma-separated list of WhatsApp JIDs, as used by
+// BOTKIT_OWNER_JIDS and BOTKIT_ALLOW_ONLY. Blank entries are skipped. Each
+// other entry must be user@server with no whitespace and no device part
+// (":device" or ".device" after the user), which is how message senders are
+// keyed. Anything else fails with ErrInvalidJID instead of listing a JID that
+// can never match.
+func ParseJIDs(raw string) ([]string, error) {
 	var owners []string
 
 	for part := range strings.SplitSeq(raw, ",") {
@@ -25,7 +26,7 @@ func ParseOwners(raw string) ([]string, error) {
 		user, server, ok := strings.Cut(entry, "@")
 		if !ok || user == "" || server == "" ||
 			strings.ContainsAny(entry, " \t\n\r:") || strings.Contains(user, ".") || strings.Contains(server, "@") {
-			return nil, fmt.Errorf("%w: %q", ErrInvalidOwnerJID, entry)
+			return nil, fmt.Errorf("%w: %q", ErrInvalidJID, entry)
 		}
 
 		owners = append(owners, entry)
