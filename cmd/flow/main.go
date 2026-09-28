@@ -13,6 +13,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/totallynotdavid/botkit/internal/auth"
 	"github.com/totallynotdavid/botkit/internal/cli"
@@ -25,8 +26,15 @@ func main() {
 	cli.Main(botCommand())
 }
 
+// A customer walking a menu sends several messages a minute.
+const requestsPerMinute = 20
+
 func botCommand() cli.Command {
-	return cli.Command{Name: "flow", Configure: configure}
+	return cli.Command{
+		Name:      "flow",
+		RateLimit: config.RateLimit{Requests: requestsPerMinute, Period: time.Minute, Cooldown: time.Minute},
+		Configure: configure,
+	}
 }
 
 func configure(env *config.Env) cli.Build {

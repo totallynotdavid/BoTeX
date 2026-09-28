@@ -32,6 +32,10 @@ type Command struct {
 	Name string
 	// Ranks are the ranks the bot's users hold besides owner.
 	Ranks []auth.Rank
+	// RateLimit is the bot's own default for the rate-limit settings, which the
+	// BOTKIT_RATE_LIMIT_* keys still override. The zero value keeps the shared
+	// default.
+	RateLimit config.RateLimit
 	// Configure reads the bot's own settings from env, together with the shared
 	// ones, so one error names every bad key before anything is opened. It
 	// returns the function that builds the bot once the store is open.
@@ -60,8 +64,13 @@ type settings struct {
 
 // readSettings reads the environment. It fails naming every bad key.
 func readSettings(cmd Command, env *config.Env) (settings, error) {
+	defaults := config.DefaultShared()
+	if cmd.RateLimit != (config.RateLimit{}) {
+		defaults.RateLimit = cmd.RateLimit
+	}
+
 	cfg := settings{
-		shared: env.Shared(config.DefaultShared()),
+		shared: env.Shared(defaults),
 		ranks:  cmd.Ranks,
 		build:  cmd.Configure(env),
 	}
