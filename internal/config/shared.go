@@ -17,6 +17,7 @@ const (
 	KeyRateLimitCooldown = "BOTKIT_RATE_LIMIT_COOLDOWN"
 	KeyMaxInFlight       = "BOTKIT_MAX_IN_FLIGHT"
 	KeyOwnMessages       = "BOTKIT_OWN_MESSAGES"
+	KeyAllowOnly         = "BOTKIT_ALLOW_ONLY"
 )
 
 // RateLimit is how many requests each user gets per period, and how long the
@@ -38,6 +39,9 @@ type Shared struct {
 	MaxInFlight int
 	// OwnMessages makes the bot answer messages sent from its own account.
 	OwnMessages bool
+	// AllowOnly limits the senders the bot answers to these JIDs. Empty means
+	// everyone.
+	AllowOnly []string
 }
 
 const (
@@ -61,13 +65,14 @@ func DefaultShared() Shared {
 }
 
 // Shared reads the shared settings, each falling back to its value in def.
-// The owner list is checked here so a malformed JID fails startup with the
-// key named.
+// The JID lists are checked here so a malformed JID fails startup with the key
+// named.
 func (e *Env) Shared(def Shared) Shared {
 	shared := Shared{
-		Store:    e.String(KeyStore, def.Store),
-		LogLevel: e.Level(KeyLogLevel, def.LogLevel),
-		Owners:   def.Owners,
+		Store:     e.String(KeyStore, def.Store),
+		LogLevel:  e.Level(KeyLogLevel, def.LogLevel),
+		Owners:    def.Owners,
+		AllowOnly: def.AllowOnly,
 		RateLimit: RateLimit{
 			Requests: e.Int(KeyRateLimitRequests, def.RateLimit.Requests, 1),
 			Period:   e.Duration(KeyRateLimitPeriod, def.RateLimit.Period, time.Millisecond),
@@ -77,15 +82,26 @@ func (e *Env) Shared(def Shared) Shared {
 		OwnMessages: e.Bool(KeyOwnMessages, def.OwnMessages),
 	}
 
-	raw, set := e.value(KeyOwners)
-	if set {
-		owners, err := auth.ParseOwners(raw)
-		if err != nil {
-			e.fail(KeyOwners, raw, err)
-		} else {
-			shared.Owners = owners
-		}
-	}
+	e.jids(KeyOwners, &shared.Owners)
+	e.jids(KeyAllowOnly, &shared.AllowOnly)
 
 	return shared
+}
+
+// jids reads the JID list at key into list, which keeps its value when the key
+// is unset or malformed.
+func (e *Env) jids(key string, list *[]string) {
+	raw, set := e.value(key)
+	if !set {
+		return
+	}
+
+	parsed, err := auth.ParseJIDs(raw)
+	if err != nil {
+		e.fail(key, raw, err)
+
+		return
+	}
+
+	*list = parsed
 }
