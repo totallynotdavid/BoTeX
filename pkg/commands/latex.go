@@ -8,9 +8,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/types"
 
 	"botex/pkg/config"
 	"botex/pkg/logger"
@@ -23,12 +25,28 @@ const (
 	maxLatexCodeLength      = 1000
 	secureFilePermissions   = 0o600
 	allowedBaseFilename     = "equation"
+
+	// Resource bounds applied to every external process a render runs
+	// (pdflatex, convert, cwebp), enforced via prlimit(1) so a single
+	// malicious document cannot exhaust memory, CPU, or disk before the
+	// renderTimeout wall-clock deadline fires.
+	maxRenderCPUSeconds  = 20
+	maxRenderMemoryBytes = 1024 * config.MB
+	maxRenderOutputBytes = 64 * config.MB
+
+	// maxLoggedOutputBytes bounds a resource RLIMIT_FSIZE cannot: the bot's
+	// own memory. A tool's combined stdout+stderr is captured for logging
+	// through a tailWriter instead of exec.Cmd.CombinedOutput, so a process
+	// that only prints, rather than writes to a file, cannot grow that
+	// capture without limit.
+	maxLoggedOutputBytes = 64 * config.KB
+
+	killedProcessWaitDelay = 2 * time.Second
 )
 
 var (
 	ErrEmptyLatex         = errors.New("empty LaTeX equation")
 	ErrLatexTooLong       = errors.New("LaTeX code exceeds character limit")
-	ErrRenderTimeout      = errors.New("LaTeX rendering timed out")
 	ErrDisallowedLatexCmd = errors.New("disallowed LaTeX command")
 	ErrTempDirCreation    = errors.New("temp dir creation failed")
 	ErrWriteTexFile       = errors.New("failed to write tex file")
@@ -36,11 +54,23 @@ var (
 	ErrToolNotFound       = errors.New("required tool not found")
 	ErrPathOutsideDir     = errors.New("file path is outside the permitted directory")
 	ErrPathNotAbsolute    = errors.New("path is not absolute")
+	ErrImageTooLarge      = errors.New("rendered image exceeds maximum allowed size")
+	// ErrRenderLimitExceeded marks a render process stopped by a resource
+	// bound (CPU, output size, or the wall-clock deadline) rather than
+	// failing on its own, so a limit can be told apart from a LaTeX error.
+	ErrRenderLimitExceeded = errors.New("render exceeded a resource limit")
 )
+
+// imageSender is the subset of *message.MessageSender that LaTeXCommand
+// depends on, so tests can substitute a fake and assert on what was sent.
+type imageSender interface {
+	SendImage(ctx context.Context, recipient types.JID, imageData []byte, caption string) error
+	SendText(ctx context.Context, recipient types.JID, text string) error
+}
 
 type LaTeXCommand struct {
 	config        *config.Config
-	messageSender *message.MessageSender
+	messageSender imageSender
 	logger        *logger.Logger
 	timeTracker   *timing.Tracker
 	renderTimeout time.Duration
@@ -48,6 +78,7 @@ type LaTeXCommand struct {
 		pdflatex string
 		convert  string
 		cwebp    string
+		prlimit  string
 	}
 }
 
@@ -126,6 +157,11 @@ func (lc *LaTeXCommand) initializeToolPaths() {
 
 	lc.toolPaths.cwebp = resolveToolPath(lc.config.CWebPPath, "cwebp")
 
+	// prlimit(1) (util-linux) has no config override: it ships as part of
+	// the base OS on every Linux host this bot targets, unlike the TeX Live
+	// and ImageMagick tools that get installed to non-standard prefixes.
+	lc.toolPaths.prlimit = lc.findExecutableInPath("prlimit")
+
 	verificationErr := lc.verifyToolExistence()
 	if verificationErr != nil {
 		lc.logger.Error("Tool verification failed", map[string]any{"error": verificationErr.Error()})
@@ -163,6 +199,11 @@ func (lc *LaTeXCommand) verifyToolExistence() error {
 		{
 			name:         "cwebp",
 			path:         lc.toolPaths.cwebp,
+			validationFn: validateAbsoluteExecutablePath,
+		},
+		{
+			name:         "prlimit",
+			path:         lc.toolPaths.prlimit,
 			validationFn: validateAbsoluteExecutablePath,
 		},
 	}
@@ -293,31 +334,123 @@ func (lc *LaTeXCommand) executeSecuredCommand(
 	executablePath string,
 	arguments ...string,
 ) error {
+	return lc.executeSecuredCommandIn(ctx, "", commandName, executablePath, arguments...)
+}
+
+// executeSecuredCommandIn runs executablePath with workDir as its current
+// directory (inherited from this process when workDir is empty). pdflatex
+// needs this: under -cnf-line=openin_any=p it refuses to open its main .tex
+// file at all when given as an absolute path, so it must be named relative
+// to a working directory instead.
+func (lc *LaTeXCommand) executeSecuredCommandIn(
+	ctx context.Context,
+	workDir string,
+	commandName string,
+	executablePath string,
+	arguments ...string,
+) error {
+	_, _, err := lc.executeSecuredCommandInWithCapture(ctx, workDir, commandName, executablePath, arguments...)
+
+	return err
+}
+
+// executeSecuredCommandInWithCapture is executeSecuredCommandIn's
+// implementation, split out so tests can inspect the captured tail
+// directly instead of only what ends up in a log file.
+func (lc *LaTeXCommand) executeSecuredCommandInWithCapture(
+	ctx context.Context,
+	workDir string,
+	commandName string,
+	executablePath string,
+	arguments ...string,
+) (capturedOutput []byte, truncated bool, err error) {
 	validationErr := validateAbsoluteExecutablePath(executablePath)
 	if validationErr != nil {
-		return fmt.Errorf("command validation failed: %w", validationErr)
+		return nil, false, fmt.Errorf("command validation failed: %w", validationErr)
 	}
 
-	command := exec.CommandContext(ctx, executablePath, arguments...) // #nosec G204 -- executablePath is validated above
+	boundedArgs := append([]string{
+		fmt.Sprintf("--cpu=%d", maxRenderCPUSeconds),
+		fmt.Sprintf("--as=%d", maxRenderMemoryBytes),
+		fmt.Sprintf("--fsize=%d", maxRenderOutputBytes),
+		executablePath,
+	}, arguments...)
+
+	// prlimit execve()s executablePath after setting the limits above, so
+	// the target process (already validated as an absolute path) inherits
+	// them; no shell is involved.
+	command := exec.CommandContext(ctx, lc.toolPaths.prlimit, boundedArgs...) // #nosec G204 -- executablePath is validated above
+	command.Dir = workDir
+
+	// A tool can spawn children (convert runs gs). Killing only the direct
+	// process on deadline would leave a child holding the output pipe open, so
+	// Wait would block until that child exits, defeating the deadline. Run
+	// the tool in its own process group and kill the whole group; WaitDelay
+	// is the backstop that closes the pipe if anything escapes the group.
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.Cancel = func() error {
+		return syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
+	}
+	command.WaitDelay = killedProcessWaitDelay
+
+	tail := newTailWriter(maxLoggedOutputBytes)
+	command.Stdout = tail
+	command.Stderr = tail
+
 	startTime := time.Now()
-	output, execErr := command.CombinedOutput()
+	execErr := command.Run()
 	executionDuration := time.Since(startTime)
 
+	capturedOutput, truncated = tail.Bytes()
+
 	logData := map[string]any{
-		"command":     command.String(),
-		"duration_ms": executionDuration.Milliseconds(),
+		"command":          command.String(),
+		"duration_ms":      executionDuration.Milliseconds(),
+		"output_truncated": truncated,
 	}
 	if execErr != nil {
-		logData["output"] = string(output)
+		logData["output"] = string(capturedOutput)
 		logData["error"] = execErr.Error()
 		lc.logger.Error(commandName+" failed", logData)
 
-		return fmt.Errorf("%s execution failed: %w", commandName, execErr)
+		if stoppedByLimit(ctx, execErr) {
+			return capturedOutput, truncated, fmt.Errorf("%s execution failed: %w: %w", commandName, ErrRenderLimitExceeded, execErr)
+		}
+
+		return capturedOutput, truncated, fmt.Errorf("%s execution failed: %w", commandName, execErr)
 	}
 
 	lc.logger.Debug(commandName+" completed", logData)
 
-	return nil
+	return capturedOutput, truncated, nil
+}
+
+// stoppedByLimit reports whether a process ended because a resource bound
+// stopped it, judged only from how it ended: the context deadline, or a
+// fatal signal. prlimit's CPU limit kills with SIGKILL (soft and hard limits
+// are equal), and an exceeded file-size limit raises SIGXFSZ. A process
+// that exits on its own, including pdflatex reporting a LaTeX error with
+// status 1, is never a limit stop, whatever it printed. A memory limit
+// (RLIMIT_AS) makes allocations fail so the tool exits by itself; that is
+// indistinguishable from any other failure and is not covered here.
+func stoppedByLimit(ctx context.Context, execErr error) bool {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return true
+	}
+
+	var exitErr *exec.ExitError
+	if !errors.As(execErr, &exitErr) {
+		return false
+	}
+
+	status, ok := exitErr.Sys().(syscall.WaitStatus)
+	if !ok || !status.Signaled() {
+		return false
+	}
+
+	signal := status.Signal()
+
+	return signal == syscall.SIGKILL || signal == syscall.SIGXCPU || signal == syscall.SIGXFSZ
 }
 
 func (lc *LaTeXCommand) renderLatex(ctx context.Context, latexCode string) ([]byte, error) {
@@ -375,13 +508,22 @@ func (lc *LaTeXCommand) writeLatexContent(renderContext *RenderContext, code str
 func (lc *LaTeXCommand) executePDFLatex(ctx context.Context, renderContext *RenderContext) error {
 	arguments := []string{
 		"-no-shell-escape",
+		// Paranoid kpathsea file access: pdflatex may only open input files
+		// named relative to its working directory (openin_any=p rejects an
+		// absolute path outright, including its own main .tex argument,
+		// which is why it is passed by base name below with Dir set to the
+		// render's temp directory) and may only write output files there
+		// too, refusing paths that escape via ".." (openout_any=p).
+		"-cnf-line=openin_any=p",
+		"-cnf-line=openout_any=p",
 		"-interaction=nonstopmode",
 		"-output-directory", renderContext.tempDirectory,
-		renderContext.filePaths[allowedBaseFilename+".tex"],
+		allowedBaseFilename + ".tex",
 	}
 
-	return lc.executeSecuredCommand(
+	return lc.executeSecuredCommandIn(
 		ctx,
+		renderContext.tempDirectory,
 		"PDFLaTeX",
 		lc.toolPaths.pdflatex,
 		arguments...,
@@ -456,10 +598,7 @@ func (lc *LaTeXCommand) handleLatexCommand(ctx context.Context, msg *message.Mes
 		return err
 	}
 
-	renderCtx, cancel := context.WithTimeout(ctx, lc.renderTimeout)
-	defer cancel()
-
-	return lc.renderAndSendLatex(renderCtx, latexCode, msg)
+	return lc.renderAndSendLatex(ctx, latexCode, msg)
 }
 
 func (lc *LaTeXCommand) validateLatexInput(latexCode string) error {
@@ -480,25 +619,63 @@ func (lc *LaTeXCommand) validateLatexInput(latexCode string) error {
 }
 
 func (lc *LaTeXCommand) renderAndSendLatex(ctx context.Context, latexCode string, msg *message.Message) error {
-	var (
-		webpImage []byte
-		renderErr error
-	)
+	var webpImage []byte
 
-	err := lc.timeTracker.TrackSubOperation(ctx, "latex_render", func(ctx context.Context) error {
-		webpImage, renderErr = lc.renderLatex(ctx, latexCode)
+	// The wall-clock deadline covers only the render. The user notice and the
+	// image send below run on the caller's context, which stays live after
+	// the deadline fires.
+	renderErr := lc.timeTracker.TrackSubOperation(ctx, "latex_render", func(ctx context.Context) error {
+		renderCtx, cancel := context.WithTimeout(ctx, lc.renderTimeout)
+		defer cancel()
 
-		return renderErr
+		var err error
+
+		webpImage, err = lc.renderLatex(renderCtx, latexCode)
+
+		return err
 	})
-	if err != nil {
-		return fmt.Errorf("failed to track latex render operation: %w", err)
-	}
-
 	if renderErr != nil {
+		if errors.Is(renderErr, ErrRenderLimitExceeded) {
+			lc.logger.Warn("Render stopped by a resource limit", map[string]any{
+				"sender": msg.Sender,
+				"error":  renderErr.Error(),
+			})
+
+			textErr := lc.messageSender.SendText(ctx, msg.Recipient,
+				"That equation took too long or used too many resources to render. Try a shorter or simpler expression.")
+			if textErr != nil {
+				return fmt.Errorf("failed to send render limit message: %w", textErr)
+			}
+		}
+
 		return fmt.Errorf("failed to render latex: %w", renderErr)
 	}
 
-	err = lc.messageSender.SendImage(ctx, msg.Recipient, webpImage, "LaTeX Render")
+	return lc.deliverImage(ctx, webpImage, msg)
+}
+
+// deliverImage refuses to send an image larger than config.MaxImageSize and
+// tells the user instead, so the configured cap holds whatever the render
+// produced.
+func (lc *LaTeXCommand) deliverImage(ctx context.Context, webpImage []byte, msg *message.Message) error {
+	imageSize := int64(len(webpImage))
+	if imageSize > lc.config.MaxImageSize {
+		lc.logger.Warn("Rendered image exceeds configured size limit", map[string]any{
+			"sender":         msg.Sender,
+			"size_bytes":     imageSize,
+			"max_size_bytes": lc.config.MaxImageSize,
+		})
+
+		textErr := lc.messageSender.SendText(ctx, msg.Recipient,
+			"The rendered equation is too large to send. Try a shorter or simpler expression.")
+		if textErr != nil {
+			return fmt.Errorf("failed to send image size limit message: %w", textErr)
+		}
+
+		return fmt.Errorf("%w: %d bytes exceeds limit of %d bytes", ErrImageTooLarge, imageSize, lc.config.MaxImageSize)
+	}
+
+	err := lc.messageSender.SendImage(ctx, msg.Recipient, webpImage, "LaTeX Render")
 	if err != nil {
 		return fmt.Errorf("failed to send latex image: %w", err)
 	}
@@ -506,8 +683,15 @@ func (lc *LaTeXCommand) renderAndSendLatex(ctx context.Context, latexCode string
 	return nil
 }
 
+// validateLatexContent blocks the direct spellings of file and shell access
+// commands. It is not a resource bound and cannot be one: TeX macros can
+// rebuild any of these at runtime (\csname, \catcode, \newcommand,
+// \expandafter), so a denylist only stops the laziest attempts. Memory, CPU
+// time, and output size are bounded for every external process a render
+// runs via prlimit in executeSecuredCommandInWithCapture, and pdflatex's own file access
+// is restricted via openin_any/openout_any in executePDFLatex.
 func (lc *LaTeXCommand) validateLatexContent(code string) error {
-	disallowedCommands := []string{"\\input", "\\include", "\\write18", "\\def", "\\let"}
+	disallowedCommands := []string{"\\input", "\\include", "\\write18"}
 	for _, cmd := range disallowedCommands {
 		if strings.Contains(code, cmd) {
 			return fmt.Errorf("%w: %s", ErrDisallowedLatexCmd, cmd)
