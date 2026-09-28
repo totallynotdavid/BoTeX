@@ -3,6 +3,7 @@ package fsm_test
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -154,7 +155,7 @@ func TestExampleParses(t *testing.T) {
 	}
 }
 
-func TestLoadOrExample(t *testing.T) {
+func TestLoad(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -172,38 +173,28 @@ func TestLoadOrExample(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		path         string
-		wantStart    string // empty when the load must fail
-		wantFromFile bool
-		wantErr      error
+		name    string
+		path    string
+		wantErr error
 	}{
-		{"a missing file uses the example", filepath.Join(dir, "absent.json"), "GREETING_INTRO", false, nil},
-		{"an existing file is used", custom, "A", true, nil},
-		{"an invalid file is an error, not a fallback", invalid, "", false, fsm.ErrStartNode},
-		{"a path that cannot be read is an error, not a fallback", dir, "", false, syscall.EISDIR},
+		{"a valid file", custom, nil},
+		{"a missing file", filepath.Join(dir, "absent.json"), fs.ErrNotExist},
+		{"an invalid file", invalid, fsm.ErrStartNode},
+		{"a path that cannot be read", dir, syscall.EISDIR},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			flow, fromFile, err := fsm.LoadOrExample(test.path)
-			if !errors.Is(err, test.wantErr) || fromFile != test.wantFromFile {
-				t.Fatalf("LoadOrExample(%q) = (fromFile %v, %v), want (fromFile %v, %v)", test.path, fromFile, err, test.wantFromFile, test.wantErr)
+			flow, err := fsm.Load(test.path)
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("Load(%q) = %v, want %v", test.path, err, test.wantErr)
 			}
 
-			if got := flowStart(flow); got != test.wantStart {
-				t.Errorf("LoadOrExample(%q) starts at %q, want %q", test.path, got, test.wantStart)
+			if err == nil && flow.StartNode != "A" {
+				t.Errorf("Load(%q) starts at %q, want A", test.path, flow.StartNode)
 			}
 		})
 	}
-}
-
-func flowStart(flow *fsm.Flow) string {
-	if flow == nil {
-		return ""
-	}
-
-	return flow.StartNode
 }

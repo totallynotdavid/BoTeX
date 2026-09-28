@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"maps"
 	"os"
 	"regexp"
@@ -51,20 +50,6 @@ func Load(path string) (*Flow, error) {
 	}
 
 	return Parse(data)
-}
-
-// LoadOrExample loads the flow at path, or Example when no file exists there.
-// A file that exists but cannot be read or is invalid is an error, never a
-// reason to fall back. fromFile tells which flow the caller got.
-func LoadOrExample(path string) (flow *Flow, fromFile bool, err error) {
-	flow, err = Load(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		flow, err = Example()
-
-		return flow, false, err
-	}
-
-	return flow, err == nil, err
 }
 
 // Parse decodes a flow, merges the transition groups nodes include, and
