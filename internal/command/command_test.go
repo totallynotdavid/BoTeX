@@ -26,6 +26,8 @@ const (
 	guest  bot.JID = "51900000003@s.whatsapp.net"
 
 	wait = 5 * time.Second
+
+	echoHi = "!echo hi"
 )
 
 var errBroken = errors.New("broken")
@@ -36,7 +38,7 @@ type echo struct{}
 func (echo) Name() string { return "echo" }
 
 func (echo) Info() command.Info {
-	return command.Info{Description: "Repeat the text", Usage: "!echo <text>", Examples: []string{"!echo hi"}}
+	return command.Info{Description: "Repeat the text", Usage: "!echo <text>", Examples: []string{echoHi}}
 }
 
 func (echo) Run(ctx context.Context, _ bot.Message, args string, chat *bot.Chat) error {
@@ -136,7 +138,7 @@ func runBot(t *testing.T, service *auth.Service, inFlight int, recorder bot.Reco
 
 	client := fake.New()
 	router := command.NewRouter("!", service, echo{}, broken{})
-	runtime := bot.New(client, router, slog.New(slog.DiscardHandler), bot.Options{Recorder: recorder, MaxInFlight: inFlight})
+	runtime := bot.New(client, router, slog.New(slog.DiscardHandler), bot.Options{Recorder: recorder, MaxInFlight: inFlight, Groups: true})
 
 	ctx, cancel := context.WithCancel(t.Context())
 	stopped := make(chan struct{})
@@ -179,11 +181,22 @@ func chat(t *testing.T, sender bot.JID, texts ...string) (*fake.Client, []error)
 func chatOver(t *testing.T, service *auth.Service, sender bot.JID, texts ...string) (*fake.Client, []error) {
 	t.Helper()
 
+	return deliver(t, service, bot.Message{Sender: sender}, texts...)
+}
+
+// deliver is chatOver for a message shaped like template, which may be in a
+// group.
+func deliver(t *testing.T, service *auth.Service, template bot.Message, texts ...string) (*fake.Client, []error) {
+	t.Helper()
+
 	results := &handled{done: make(chan struct{}, len(texts))}
 	client := runBot(t, service, len(texts), results)
 
 	for _, text := range texts {
-		client.Deliver(bot.Message{Sender: sender, Text: text})
+		msg := template
+		msg.Text = text
+
+		client.Deliver(msg)
 	}
 
 	for range texts {
@@ -257,7 +270,7 @@ func TestRankWithoutTheCommandIsDenied(t *testing.T) {
 func TestUnregisteredUserIsDeniedEveryCommand(t *testing.T) {
 	t.Parallel()
 
-	client, _ := chat(t, guest, "!echo hi", "!nothing")
+	client, _ := chat(t, guest, echoHi, "!nothing")
 
 	if got := emojis(client.Reactions()); !slices.Equal(got, []string{"🚫", "🚫"}) {
 		t.Errorf("reactions = %v, want only 🚫", got)
@@ -267,6 +280,144 @@ func TestUnregisteredUserIsDeniedEveryCommand(t *testing.T) {
 		if sent.Text == "hi" {
 			t.Error("an unregistered user ran a command")
 		}
+	}
+}
+
+const (
+	registeredGroup   bot.JID = "120363000000000001@g.us"
+	unregisteredGroup bot.JID = "120363000000000002@g.us"
+)
+
+// denied asserts that the router refused with 🚫 and one notice containing
+// wantText, and ran nothing.
+func denied(t *testing.T, client *fake.Client, wantText string) {
+	t.Helper()
+
+	if got := emojis(client.Reactions()); !slices.Equal(got, []string{"🚫"}) {
+		t.Errorf("reactions = %v, want 🚫", got)
+	}
+
+	sent := texts(client.Sent())
+	if len(sent) != 1 || !strings.Contains(sent[0], wantText) {
+		t.Errorf("sent %q, want one notice containing %q", sent, wantText)
+	}
+}
+
+func TestDenialsNameTheReason(t *testing.T) {
+	t.Parallel()
+
+	service := newService(t)
+
+	err := service.RegisterGroup(t.Context(), string(registeredGroup), string(owner))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name     string
+		message  bot.Message
+		text     string
+		wantText string
+	}{
+		{
+			"unregistered user in a direct chat",
+			bot.Message{Sender: guest},
+			echoHi,
+			"You must be a registered user to use commands. Please",
+		},
+		{
+			"unregistered user in a registered group",
+			bot.Message{Sender: guest, Group: true, Chat: registeredGroup},
+			echoHi,
+			"registered user to use commands in this group",
+		},
+		{
+			"rank without the command",
+			bot.Message{Sender: member},
+			"!admin now",
+			"The command `!admin` is not available for your rank.",
+		},
+		{
+			"rank without the command in a registered group",
+			bot.Message{Sender: member, Group: true, Chat: registeredGroup},
+			"!admin now",
+			"The command `!admin` is not available for your rank.",
+		},
+		{
+			"unregistered group",
+			bot.Message{Sender: member, Group: true, Chat: unregisteredGroup},
+			echoHi,
+			"This group is not registered for bot usage.",
+		},
+	}
+
+	for _, scenario := range cases {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+
+			client, outcomes := deliver(t, service, scenario.message, scenario.text)
+
+			if outcomes[0] != nil {
+				t.Fatalf("handler failed: %v", outcomes[0])
+			}
+
+			denied(t, client, scenario.wantText)
+		})
+	}
+}
+
+func TestRegisteredGroupAllowsAPermittedUser(t *testing.T) {
+	t.Parallel()
+
+	service := newService(t)
+
+	err := service.RegisterGroup(t.Context(), string(registeredGroup), string(owner))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client, outcomes := deliver(t, service, bot.Message{Sender: member, Group: true, Chat: registeredGroup}, echoHi)
+
+	if outcomes[0] != nil {
+		t.Fatalf("handler failed: %v", outcomes[0])
+	}
+
+	if got := texts(client.Sent()); !slices.Equal(got, []string{"hi"}) {
+		t.Errorf("sent %q, want the reply in the group", got)
+	}
+
+	if sent := client.Sent(); len(sent) == 1 && sent[0].To != registeredGroup {
+		t.Errorf("reply went to %q, want the group", sent[0].To)
+	}
+
+	if got := emojis(client.Reactions()); !slices.Equal(got, []string{"✅"}) {
+		t.Errorf("reactions = %v, want ✅", got)
+	}
+}
+
+func TestDirectChatNeedsNoGroupRegistration(t *testing.T) {
+	t.Parallel()
+
+	service := newService(t)
+
+	client, _ := deliver(t, service, bot.Message{Sender: member, Chat: member}, echoHi)
+
+	if got := texts(client.Sent()); !slices.Equal(got, []string{"hi"}) {
+		t.Errorf("sent %q, want the command to run", got)
+	}
+}
+
+func TestGroupMessageWithoutAGroupIsRefused(t *testing.T) {
+	t.Parallel()
+
+	client, outcomes := deliver(t, newService(t), bot.Message{Sender: member, Group: true}, echoHi)
+
+	if !errors.Is(outcomes[0], command.ErrGroupWithoutID) {
+		t.Errorf("handler outcome = %v, want ErrGroupWithoutID", outcomes[0])
+	}
+
+	if len(client.Sent()) != 0 {
+		t.Errorf("sent %q, want nothing", texts(client.Sent()))
 	}
 }
 
@@ -312,7 +463,7 @@ func TestPermissionErrorIsReported(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, outcomes := chatOver(t, service, member, "!echo hi")
+	_, outcomes := chatOver(t, service, member, echoHi)
 
 	if outcomes[0] == nil || !strings.Contains(outcomes[0].Error(), "check permission") {
 		t.Errorf("handler outcome = %v, want the permission check's error", outcomes[0])
