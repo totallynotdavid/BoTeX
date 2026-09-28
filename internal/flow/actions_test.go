@@ -16,12 +16,6 @@ import (
 	"github.com/totallynotdavid/botkit/internal/whatsapp/fake"
 )
 
-func newActions(t *testing.T, voucherDir string) *flow.Actions {
-	t.Helper()
-
-	return flow.NewActions(fake.New(), voucherDir)
-}
-
 // photo is an image message the fake client downloads as data.
 func photo(data string) bot.Message {
 	return bot.Message{PushName: "Ana", Media: &bot.Media{Kind: bot.MediaImage, MIME: "image/jpeg", Raw: []byte(data)}}
@@ -55,7 +49,7 @@ func TestApplyStateActions(t *testing.T) {
 			state.UserID = userAna
 			test.want.UserID = userAna
 
-			err := newActions(t, t.TempDir()).Apply(t.Context(), test.action, &state, bot.Message{}, test.origin)
+			err := flow.NewActions(t.TempDir()).Apply(t.Context(), fake.New(), test.action, &state, bot.Message{}, test.origin)
 			if err != nil {
 				t.Fatalf("Apply(%q) error = %v", test.action, err)
 			}
@@ -72,7 +66,7 @@ func TestApplyUnknownAction(t *testing.T) {
 
 	state := &flow.State{UserName: "Ana"}
 
-	err := newActions(t, t.TempDir()).Apply(t.Context(), "launch_rocket", state, bot.Message{}, "N")
+	err := flow.NewActions(t.TempDir()).Apply(t.Context(), fake.New(), "launch_rocket", state, bot.Message{}, "N")
 	if !errors.Is(err, flow.ErrUnknownAction) || !strings.Contains(err.Error(), "launch_rocket") {
 		t.Errorf("Apply() error = %v, want ErrUnknownAction naming the action", err)
 	}
@@ -117,7 +111,7 @@ func TestApplySaveUserName(t *testing.T) {
 
 			state := &flow.State{UserID: userAna, UserName: test.existing}
 
-			err := newActions(t, t.TempDir()).Apply(t.Context(), "save_user_name", state, bot.Message{Text: test.input}, "N")
+			err := flow.NewActions(t.TempDir()).Apply(t.Context(), fake.New(), "save_user_name", state, bot.Message{Text: test.input}, "N")
 			if !errors.Is(err, test.wantErr) {
 				t.Errorf("Apply() error = %v, want %v", err, test.wantErr)
 			}
@@ -137,7 +131,7 @@ func TestApplySavePaymentVoucherStoresTheImage(t *testing.T) {
 	msg := photo("jpeg-bytes")
 	msg.PushName = "Ana Pérez"
 
-	err := newActions(t, dir).Apply(t.Context(), "save_payment_voucher", state, msg, "PAYMENT")
+	err := flow.NewActions(dir).Apply(t.Context(), fake.New(), "save_payment_voucher", state, msg, "PAYMENT")
 	if err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}
@@ -183,14 +177,14 @@ func TestApplySavePaymentVoucherKeepsEveryVoucherOfOneUser(t *testing.T) {
 
 	const vouchers = 25
 
-	actions := newActions(t, filepath.Join(t.TempDir(), "vouchers"))
+	actions := flow.NewActions(filepath.Join(t.TempDir(), "vouchers"))
 	saved := make(map[string]string, vouchers)
 
 	for seq := range vouchers {
 		want := "voucher-" + strconv.Itoa(seq)
 		state := &flow.State{UserID: userAna}
 
-		err := actions.Apply(t.Context(), "save_payment_voucher", state, photo(want), "N")
+		err := actions.Apply(t.Context(), fake.New(), "save_payment_voucher", state, photo(want), "N")
 		if err != nil {
 			t.Fatalf("voucher %d: Apply() error = %v", seq, err)
 		}
@@ -237,7 +231,7 @@ func TestApplySavePaymentVoucherFileName(t *testing.T) {
 			msg := photo("x")
 			msg.PushName = test.pushName
 
-			err := newActions(t, filepath.Join(t.TempDir(), "v")).Apply(t.Context(), "save_payment_voucher", state, msg, "N")
+			err := flow.NewActions(filepath.Join(t.TempDir(), "v")).Apply(t.Context(), fake.New(), "save_payment_voucher", state, msg, "N")
 			if err != nil {
 				t.Fatalf("Apply() error = %v", err)
 			}
@@ -271,7 +265,7 @@ func TestApplySavePaymentVoucherEscalatesWithoutAnImage(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "vouchers")
 			state := &flow.State{UserID: userAna}
 
-			err := newActions(t, dir).Apply(t.Context(), "save_payment_voucher", state, test.msg, "N")
+			err := flow.NewActions(dir).Apply(t.Context(), fake.New(), "save_payment_voucher", state, test.msg, "N")
 			if err != nil {
 				t.Fatalf("Apply() error = %v, want none: the user moves on and a person takes over", err)
 			}
@@ -327,7 +321,7 @@ func TestApplySavePaymentVoucherFailures(t *testing.T) {
 
 			state := &flow.State{UserID: userAna}
 
-			err := newActions(t, test.dir).Apply(t.Context(), "save_payment_voucher", state, test.msg, "N")
+			err := flow.NewActions(test.dir).Apply(t.Context(), fake.New(), "save_payment_voucher", state, test.msg, "N")
 			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
 				t.Fatalf("Apply() error = %v, want one mentioning %q", err, test.wantErr)
 			}
@@ -360,7 +354,7 @@ func TestApplySavePaymentVoucherFileFailure(t *testing.T) {
 
 	state := &flow.State{UserID: userAna}
 
-	err = newActions(t, dir).Apply(t.Context(), "save_payment_voucher", state, photo("x"), "N")
+	err = flow.NewActions(dir).Apply(t.Context(), fake.New(), "save_payment_voucher", state, photo("x"), "N")
 	if err == nil || !strings.Contains(err.Error(), "save voucher file") {
 		t.Errorf("Apply() error = %v, want a file error", err)
 	}
@@ -384,7 +378,7 @@ func TestCheckAgreesWithApply(t *testing.T) {
 		t.Run(action, func(t *testing.T) {
 			t.Parallel()
 
-			applied := newActions(t, t.TempDir()).Apply(t.Context(), action, &flow.State{}, photo("x"), "N")
+			applied := flow.NewActions(t.TempDir()).Apply(t.Context(), fake.New(), action, &flow.State{}, photo("x"), "N")
 			applyKnows := !errors.Is(applied, flow.ErrUnknownAction)
 
 			parsed, err := fsm.Parse([]byte(`{"start_node":"A","nodes":{"A":` + node(action) + `,"NEEDS_ASSISTANCE":` + node("") + `}}`))
@@ -392,7 +386,7 @@ func TestCheckAgreesWithApply(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			checkKnows := newActions(t, t.TempDir()).Check(parsed) == nil
+			checkKnows := flow.NewActions(t.TempDir()).Check(parsed) == nil
 			if applyKnows != checkKnows || applyKnows != (action != "launch_rocket") {
 				t.Errorf("Apply knows %q: %t, Check knows it: %t", action, applyKnows, checkKnows)
 			}
@@ -413,7 +407,7 @@ func TestCheckAcceptsTheExampleFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = newActions(t, t.TempDir()).Check(example)
+	err = flow.NewActions(t.TempDir()).Check(example)
 	if err != nil {
 		t.Errorf("Check(example) = %v, want none", err)
 	}
@@ -448,7 +442,7 @@ func TestCheckNamesEveryUnknownAction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = newActions(t, t.TempDir()).Check(parsed)
+	err = flow.NewActions(t.TempDir()).Check(parsed)
 	if !errors.Is(err, flow.ErrUnknownAction) {
 		t.Fatalf("Check() = %v, want ErrUnknownAction", err)
 	}
