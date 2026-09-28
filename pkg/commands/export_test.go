@@ -65,6 +65,12 @@ func (lc *LaTeXCommand) ExecuteSecuredCommandCapture(
 
 func MaxLoggedOutputBytes() int { return maxLoggedOutputBytes }
 
+func DenyReason(ctx context.Context, authService authorizer, userID, groupID, command string) (string, error) {
+	handler := &CommandHandler{authService: authService}
+
+	return handler.denyReason(ctx, userID, groupID, command)
+}
+
 // NewTailWriterForTest returns *tailWriter, an unexported type whose Write
 // and Bytes methods are already exported (Write to satisfy io.Writer); a
 // commands_test caller can use the returned value without ever naming the
