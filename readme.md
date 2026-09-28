@@ -2,6 +2,7 @@
 
 [![CodeQL](https://github.com/totallynotdavid/BoTeX/actions/workflows/codeql.yml/badge.svg)](https://github.com/totallynotdavid/BoTeX/actions/workflows/codeql.yml)
 [![lint-and-testing](https://github.com/totallynotdavid/BoTeX/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/totallynotdavid/BoTeX/actions/workflows/golangci-lint.yml)
+[![test](https://github.com/totallynotdavid/BoTeX/actions/workflows/test.yml/badge.svg)](https://github.com/totallynotdavid/BoTeX/actions/workflows/test.yml)
 
 WhatsApp bot for rendering LaTeX equations. Built with Go and
 [whatsmeow](https://github.com/tulir/whatsmeow), includes structured logging,
@@ -9,11 +10,12 @@ rate limiting, performance tracking, and rank-based permissions.
 
 ## Installation
 
-The bot requires TeX Live for rendering equations and ImageMagick for image
-processing. Install system dependencies first:
+The bot requires TeX Live for rendering equations, ImageMagick to rasterize the
+rendered PDF, and `cwebp` to convert it. ImageMagick's PDF delegate needs
+Ghostscript, or `convert` fails; install system dependencies first:
 
 ```bash
-sudo apt-get install gcc build-essential imagemagick webp
+sudo apt-get install gcc build-essential imagemagick ghostscript webp
 ```
 
 Install TeX Live using the provided script, or follow the
@@ -23,6 +25,20 @@ these packages: `amsmath amsfonts physics standalone preview bm`
 ```bash
 ./utils/latex.sh
 ```
+
+On Debian/Ubuntu, `apt-get` can install TeX Live instead of the script above.
+This is the exact combination `.github/workflows/test.yml` installs and runs the
+render-bound tests against (`docker/render-test-packages.txt`):
+
+```bash
+sudo apt-get install texlive-latex-base texlive-latex-recommended \
+    texlive-latex-extra texlive-fonts-recommended texlive-science \
+    texlive-pictures
+```
+
+Without any of that installed locally, `mise run test:render` builds the same
+toolchain into a disposable Docker image (`docker/render-test.Dockerfile`) and
+runs the full test suite, including the render-bound tests, against it.
 
 Install [mise](https://mise.jdx.dev/) for managing Go and tooling:
 
