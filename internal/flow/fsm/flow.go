@@ -3,7 +3,12 @@
 // next and which action the transition carries.
 package fsm
 
-import "regexp"
+import (
+	"fmt"
+	"maps"
+	"regexp"
+	"slices"
+)
 
 // HelpNode is the node a user is sent to when they ask for a person. Global
 // transitions that lead here stay active on nodes that ignore the others, and
@@ -85,4 +90,48 @@ type Flow struct {
 	Nodes             map[string]Node         `json:"nodes"`
 	GlobalTransitions []Transition            `json:"global_transitions,omitempty"`
 	TransitionGroups  map[string][]Transition `json:"transition_groups,omitempty"`
+}
+
+// ActionUse is one place where a flow names an action.
+type ActionUse struct {
+	// Where locates the action the way Parse words its errors, for example
+	// `node "PAY"` or `global_transitions[2]`.
+	Where  string
+	Action string
+}
+
+// Actions lists every action the flow names, so a caller can check that it
+// knows them all. The list is in a fixed order and skips empty actions.
+func (f *Flow) Actions() []ActionUse {
+	var uses []ActionUse
+
+	add := func(where, action string) {
+		if action != "" {
+			uses = append(uses, ActionUse{Where: where, Action: action})
+		}
+	}
+
+	for idx, tr := range f.GlobalTransitions {
+		add(fmt.Sprintf("global_transitions[%d]", idx), tr.Action)
+	}
+
+	for _, name := range slices.Sorted(maps.Keys(f.TransitionGroups)) {
+		for idx, tr := range f.TransitionGroups[name] {
+			add(fmt.Sprintf("group %q[%d]", name, idx), tr.Action)
+		}
+	}
+
+	for _, nodeID := range slices.Sorted(maps.Keys(f.Nodes)) {
+		node := f.Nodes[nodeID]
+		add(fmt.Sprintf("node %q", nodeID), node.Action)
+
+		// A node's transitions start with those of the group it includes, which
+		// the loop over the groups has listed already.
+		own := node.Transitions[min(len(f.TransitionGroups[node.IncludeTransitions]), len(node.Transitions)):]
+		for idx, tr := range own {
+			add(fmt.Sprintf("node %q transitions[%d]", nodeID, idx), tr.Action)
+		}
+	}
+
+	return uses
 }
