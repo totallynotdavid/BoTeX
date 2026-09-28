@@ -16,7 +16,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 
-	"github.com/totallynotdavid/botkit/pkg/auth"
+	"github.com/totallynotdavid/botkit/internal/auth"
 	"github.com/totallynotdavid/botkit/pkg/commands"
 	"github.com/totallynotdavid/botkit/pkg/config"
 	"github.com/totallynotdavid/botkit/pkg/logger"
@@ -29,10 +29,25 @@ const (
 	connMaxLifetime = 3600 // seconds
 	connMaxIdleTime = 1800 // seconds
 
+	adminLevel = 10
+	userLevel  = 100
+
 	fieldJID = "jid"
 )
 
 var ErrQRLoginTimeout = errors.New("QR login timed out")
+
+func latexRanks() []auth.Rank {
+	return []auth.Rank{
+		{
+			Name:        "admin",
+			Level:       adminLevel,
+			Commands:    []string{"help", "latex", "register_user", "register_group"},
+			Description: "Administrator with management access",
+		},
+		{Name: "user", Level: userLevel, Commands: []string{"help", "latex"}, Description: "Basic user access"},
+	}
+}
 
 type Bot struct {
 	client         *whatsmeow.Client
@@ -41,7 +56,7 @@ type Bot struct {
 	logger         *logger.Logger
 	loggerFactory  *logger.Factory
 	shutdownSignal chan os.Signal
-	authService    auth.Auth
+	authService    *auth.Service
 	db             *sql.DB
 }
 
@@ -70,7 +85,7 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 
 	appLogger.Info("Initializing database schema", nil)
 
-	err = auth.InitSchema(ctx, database)
+	authService, err := auth.New(ctx, database, latexRanks()...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize database schema: %w", err)
 	}
@@ -81,8 +96,6 @@ func NewBot(cfg *config.Config, loggerFactory *logger.Factory) (*Bot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup WhatsApp client: %w", err)
 	}
-
-	authService := auth.New(database)
 
 	err = seedOwners(ctx, authService, cfg.Auth.OwnerJIDs, appLogger)
 	if err != nil {
@@ -188,7 +201,7 @@ func setupWhatsAppClient(cfg *config.Config, loggerFactory *logger.Factory) (*wh
 	return client, nil
 }
 
-func setupCommands(client *whatsmeow.Client, cfg *config.Config, loggerFactory *logger.Factory, authService auth.Auth) (*commands.CommandHandler, error) {
+func setupCommands(client *whatsmeow.Client, cfg *config.Config, loggerFactory *logger.Factory, authService *auth.Service) (*commands.CommandHandler, error) {
 	registry := commands.NewCommandRegistry(loggerFactory)
 
 	timeLogger := loggerFactory.GetLogger("timing")
@@ -227,10 +240,6 @@ func (b *Bot) Start() error {
 
 func (b *Bot) Shutdown() {
 	b.logger.Info("Initiating graceful shutdown", nil)
-
-	if b.commandHandler != nil {
-		b.commandHandler.Close()
-	}
 
 	if b.client != nil && b.client.IsConnected() {
 		b.client.Disconnect()

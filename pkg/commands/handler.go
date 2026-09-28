@@ -10,11 +10,11 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types/events"
 
-	"github.com/totallynotdavid/botkit/pkg/auth"
+	"github.com/totallynotdavid/botkit/internal/auth"
+	"github.com/totallynotdavid/botkit/internal/ratelimit"
 	"github.com/totallynotdavid/botkit/pkg/config"
 	"github.com/totallynotdavid/botkit/pkg/logger"
 	"github.com/totallynotdavid/botkit/pkg/message"
-	"github.com/totallynotdavid/botkit/pkg/ratelimit"
 	"github.com/totallynotdavid/botkit/pkg/timing"
 )
 
@@ -64,38 +64,29 @@ type CommandHandler struct {
 	config        *config.Config
 	messageSender *message.MessageSender
 	logger        *logger.Logger
-	rateService   *ratelimit.RateLimitService
+	limiter       *ratelimit.Limiter
 	semaphore     chan struct{}
 	timeTracker   *timing.Tracker
-	authService   auth.Auth
+	authService   authorizer
 }
 
-func NewCommandHandler(client *whatsmeow.Client, cfg *config.Config, registry *CommandRegistry, loggerFactory *logger.Factory, authService auth.Auth) (*CommandHandler, error) {
+// authorizer is the part of *auth.Service the handler asks permissions of.
+type authorizer interface {
+	CheckPermission(ctx context.Context, user, command string) (bool, error)
+	GetUser(ctx context.Context, userID string) (*auth.User, error)
+	GetGroup(ctx context.Context, groupID string) (*auth.Group, error)
+}
+
+func NewCommandHandler(client *whatsmeow.Client, cfg *config.Config, registry *CommandRegistry, loggerFactory *logger.Factory, authService *auth.Service) (*CommandHandler, error) {
 	cmdLogger := loggerFactory.GetLogger("command-handler")
 
-	limiter := ratelimit.NewLimiter(
+	limiter, err := ratelimit.NewLimiter(
 		cfg.RateLimit.Requests,
 		cfg.RateLimit.Period,
-	)
-
-	notifier := ratelimit.NewNotifier(
 		cfg.RateLimit.NotificationCooldown,
 	)
-
-	cleaner := ratelimit.NewAutoCleaner(
-		cfg.RateLimit.CleanupInterval,
-	)
-
-	rateService := ratelimit.NewRateLimitService(
-		limiter,
-		notifier,
-		cleaner,
-		cmdLogger,
-	)
-
-	err := rateService.Start()
 	if err != nil {
-		return nil, fmt.Errorf("failed to start rate limiter: %w", err)
+		return nil, fmt.Errorf("failed to create rate limiter: %w", err)
 	}
 
 	timeTracker := timing.NewTrackerFromConfig(cfg, loggerFactory.GetLogger("timing"))
@@ -106,7 +97,7 @@ func NewCommandHandler(client *whatsmeow.Client, cfg *config.Config, registry *C
 		config:        cfg,
 		messageSender: message.NewMessageSender(client),
 		logger:        cmdLogger,
-		rateService:   rateService,
+		limiter:       limiter,
 		semaphore:     make(chan struct{}, cfg.MaxConcurrent),
 		timeTracker:   timeTracker,
 		authService:   authService,
@@ -126,10 +117,6 @@ func (h *CommandHandler) GetCommands() []Command {
 	}
 
 	return cmds
-}
-
-func (h *CommandHandler) Close() {
-	h.rateService.Stop()
 }
 
 func (h *CommandHandler) HandleEvent(evt any) {
@@ -187,7 +174,7 @@ func (h *CommandHandler) checkPermission(ctx context.Context, msg *message.Messa
 		groupID = msg.GroupID.String()
 	}
 
-	permissionResult, err := h.authService.CheckPermission(ctx, userID, groupID, command)
+	reason, err := h.denyReason(ctx, userID, groupID, command)
 	if err != nil {
 		h.logger.Error("Permission check failed", map[string]any{
 			"command":  command,
@@ -199,14 +186,13 @@ func (h *CommandHandler) checkPermission(ctx context.Context, msg *message.Messa
 		return false
 	}
 
-	if !permissionResult.Allowed {
+	if reason != "" {
 		h.logger.Info("Command permission denied", map[string]any{
-			"command":   command,
-			"sender":    userID,
-			"reason":    permissionResult.Reason,
-			"user_rank": permissionResult.UserRank,
+			"command": command,
+			"sender":  userID,
+			"reason":  reason,
 		})
-		h.handlePermissionDenied(ctx, msg, command, permissionResult)
+		h.handlePermissionDenied(ctx, msg, command, reason)
 
 		return false
 	}
@@ -214,11 +200,51 @@ func (h *CommandHandler) checkPermission(ctx context.Context, msg *message.Messa
 	return true
 }
 
+// denyReason returns why the sender may not run command, or "" when allowed.
+// A group must be registered before anyone may use commands in it.
+func (h *CommandHandler) denyReason(ctx context.Context, userID, groupID, command string) (string, error) {
+	allowed, err := h.authService.CheckPermission(ctx, userID, command)
+	if err != nil {
+		return "", fmt.Errorf("failed to check permission: %w", err)
+	}
+
+	if !allowed {
+		_, err = h.authService.GetUser(ctx, userID)
+		if errors.Is(err, auth.ErrUserNotFound) {
+			return "User not registered", nil
+		}
+
+		if err != nil {
+			return "", fmt.Errorf("failed to look up user: %w", err)
+		}
+
+		return "Command not allowed for your rank", nil
+	}
+
+	if groupID != "" {
+		_, err = h.authService.GetGroup(ctx, groupID)
+		if errors.Is(err, auth.ErrGroupNotRegistered) {
+			return "Group not registered", nil
+		}
+
+		if err != nil {
+			return "", fmt.Errorf("failed to look up group: %w", err)
+		}
+	}
+
+	return "", nil
+}
+
 func (h *CommandHandler) processCommand(ctx context.Context, msg *message.Message, command string) {
 	err := h.timeTracker.Track(ctx, "handle_command", timing.Basic, func(ctx context.Context) error {
-		rateLimitErr := h.rateService.Check(ctx, msg)
-		if rateLimitErr != nil {
-			h.handleRateLimitError(ctx, msg, rateLimitErr)
+		limit := h.limiter.Check(msg.Sender.String())
+		if !limit.Allowed {
+			h.logger.Warn("Rate limit exceeded", map[string]any{
+				"sender":     msg.Sender,
+				"resetAfter": limit.ResetAfter,
+				"notify":     limit.Notify,
+			})
+			h.handleRateLimit(ctx, msg, limit)
 
 			return nil
 		}
@@ -245,24 +271,14 @@ func (h *CommandHandler) processCommand(ctx context.Context, msg *message.Messag
 	}
 }
 
-func (h *CommandHandler) handleRateLimitError(ctx context.Context, msg *message.Message, err error) {
-	var rateErr *ratelimit.RateLimitError
-	if !errors.As(err, &rateErr) {
-		h.logger.Error("Unexpected error type in rate limiting", map[string]any{
-			"error":  err.Error(),
-			"sender": msg.Sender,
-		})
-
-		return
-	}
-
+func (h *CommandHandler) handleRateLimit(ctx context.Context, msg *message.Message, limit ratelimit.Result) {
 	reactionErr := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "⚠️")
 	if reactionErr != nil {
 		h.logger.Error("Failed to send rate limit reaction", map[string]any{"error": reactionErr.Error()})
 	}
 
-	if rateErr.Notify {
-		waitMsg := fmt.Sprintf("Too many requests. Please wait %d seconds.", int(rateErr.ResetAfter.Seconds()))
+	if limit.Notify {
+		waitMsg := fmt.Sprintf("Too many requests. Please wait %d seconds.", int(limit.ResetAfter.Seconds()))
 
 		textErr := h.messageSender.SendText(ctx, msg.Recipient, waitMsg)
 		if textErr != nil {
@@ -331,13 +347,13 @@ func (h *CommandHandler) handleConcurrencyLimit(ctx context.Context, msg *messag
 	}
 }
 
-func (h *CommandHandler) handlePermissionDenied(ctx context.Context, msg *message.Message, command string, result *auth.PermissionResult) {
+func (h *CommandHandler) handlePermissionDenied(ctx context.Context, msg *message.Message, command, reason string) {
 	reactionErr := h.messageSender.SendReaction(ctx, msg.Recipient, msg.MessageID, "🚫")
 	if reactionErr != nil {
 		h.logger.Error("Failed to send permission denied reaction", map[string]any{"error": reactionErr.Error()})
 	}
 
-	permissionMsg := h.createPermissionDeniedMessage(msg.IsGroup, command, result.Reason)
+	permissionMsg := h.createPermissionDeniedMessage(msg.IsGroup, command, reason)
 
 	textErr := h.messageSender.SendText(ctx, msg.Recipient, permissionMsg)
 	if textErr != nil {

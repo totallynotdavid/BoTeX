@@ -8,6 +8,7 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"github.com/totallynotdavid/botkit/internal/auth"
 	"github.com/totallynotdavid/botkit/pkg/logger"
 	"github.com/totallynotdavid/botkit/pkg/util"
 )
@@ -22,7 +23,6 @@ const (
 	DefaultRateLimitRequests             = 5
 	DefaultRateLimitPeriod               = 1 * time.Minute
 	DefaultRateLimitNotificationCooldown = 5 * time.Minute
-	DefaultRateLimitCleanupInterval      = 1 * time.Hour
 
 	DefaultTimingLevel        = "disabled"
 	DefaultTimingLogThreshold = 100 * time.Millisecond
@@ -34,7 +34,6 @@ var (
 	ErrRateLimitRequestsMustBePositive      = errors.New("RateLimit.Requests must be positive")
 	ErrRateLimitPeriodMustBePositive        = errors.New("RateLimit.Period must be positive")
 	ErrRateLimitNotificationCooldownInvalid = errors.New("RateLimit.NotificationCooldown must be positive")
-	ErrRateLimitCleanupIntervalInvalid      = errors.New("RateLimit.CleanupInterval must be positive")
 	ErrTimingLogThresholdInvalid            = errors.New("Timing.LogThreshold must be non-negative")
 )
 
@@ -48,7 +47,6 @@ type Config struct {
 		Requests             int
 		Period               time.Duration
 		NotificationCooldown time.Duration
-		CleanupInterval      time.Duration
 	}
 
 	Timing struct {
@@ -89,7 +87,6 @@ func (e *envLoader) loadRateLimit() {
 	e.cfg.RateLimit.Requests = util.GetEnvInt("BOTEX_RATE_LIMIT_REQUESTS", DefaultRateLimitRequests)
 	e.cfg.RateLimit.Period = util.GetEnvDuration("BOTEX_RATE_LIMIT_PERIOD", DefaultRateLimitPeriod)
 	e.cfg.RateLimit.NotificationCooldown = util.GetEnvDuration("BOTEX_RATE_LIMIT_NOTIFICATION_COOLDOWN", DefaultRateLimitNotificationCooldown)
-	e.cfg.RateLimit.CleanupInterval = util.GetEnvDuration("BOTEX_RATE_LIMIT_CLEANUP_INTERVAL", DefaultRateLimitCleanupInterval)
 }
 
 func (e *envLoader) loadTiming() {
@@ -103,7 +100,7 @@ func (e *envLoader) loadAuth() error {
 	e.cfg.Auth.ProcessOwnMessages = util.GetEnvBool("BOTEX_PROCESS_OWN_MESSAGES", false)
 	e.cfg.Auth.ValidateSchema = util.GetEnvBool("BOTEX_AUTH_VALIDATE_SCHEMA", true)
 
-	ownerJIDs, err := ParseOwnerJIDs(util.GetEnv("BOTEX_OWNER_JIDS", ""))
+	ownerJIDs, err := auth.ParseOwners(util.GetEnv("BOTEX_OWNER_JIDS", ""))
 	if err != nil {
 		return fmt.Errorf("BOTEX_OWNER_JIDS: %w", err)
 	}
@@ -165,10 +162,6 @@ func (c *Config) Validate() error {
 
 	if c.RateLimit.NotificationCooldown <= 0 {
 		return ErrRateLimitNotificationCooldownInvalid
-	}
-
-	if c.RateLimit.CleanupInterval <= 0 {
-		return ErrRateLimitCleanupIntervalInvalid
 	}
 
 	if c.Timing.LogThreshold < 0 {
