@@ -1,130 +1,156 @@
-# [bot]: alfred
+# botkit
 
-[![CodeQL](https://github.com/totallynotdavid/BoTeX/actions/workflows/codeql.yml/badge.svg)](https://github.com/totallynotdavid/BoTeX/actions/workflows/codeql.yml)
-[![lint-and-testing](https://github.com/totallynotdavid/BoTeX/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/totallynotdavid/BoTeX/actions/workflows/golangci-lint.yml)
-[![test](https://github.com/totallynotdavid/BoTeX/actions/workflows/test.yml/badge.svg)](https://github.com/totallynotdavid/BoTeX/actions/workflows/test.yml)
+[![CodeQL](https://github.com/totallynotdavid/botkit/actions/workflows/codeql.yml/badge.svg)](https://github.com/totallynotdavid/botkit/actions/workflows/codeql.yml)
+[![lint-and-testing](https://github.com/totallynotdavid/botkit/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/totallynotdavid/botkit/actions/workflows/golangci-lint.yml)
+[![test](https://github.com/totallynotdavid/botkit/actions/workflows/test.yml/badge.svg)](https://github.com/totallynotdavid/botkit/actions/workflows/test.yml)
 
-WhatsApp bot for rendering LaTeX equations. Built with Go and
-[whatsmeow](https://github.com/tulir/whatsmeow), includes structured logging,
-rate limiting, performance tracking, and rank-based permissions.
-
-## Installation
-
-The bot requires TeX Live for rendering equations, ImageMagick to rasterize the
-rendered PDF, and `cwebp` to convert it. ImageMagick's PDF delegate needs
-Ghostscript, or `convert` fails; install system dependencies first:
+A WhatsApp bot that renders LaTeX equations to images, built in Go on
+[whatsmeow](https://github.com/tulir/whatsmeow). Send `!latex \frac{a}{b}` in a
+chat or a registered group and the bot replies with a PNG. Access is rank-based,
+each user is rate limited, and every render runs under memory, time and size
+limits.
 
 ```bash
-sudo apt-get install gcc build-essential imagemagick ghostscript webp
+mise install && mise run build
+bin/botkit-latex pair
+bin/botkit-latex run
 ```
 
-Install TeX Live using the provided script, or follow the
-[quick install guide](https://www.tug.org/texlive/quickinstall.html) and add
-these packages: `amsmath amsfonts physics standalone preview bm`
+## Requirements
+
+- Go and [typst](https://typst.app) 0.15, both installed by
+  [mise](https://mise.jdx.dev/) (`mise install`).
+- `prlimit` from util-linux, which applies the memory and file limits to typst.
+  Linux only.
+
+The bot renders through the typst CLI and the
+[mitex](https://typst.app/universe/package/mitex) package, which is embedded in
+the binary. It never downloads packages.
+
+## Pairing
+
+The bot stores its WhatsApp session in the SQLite file `BOTKIT_STORE_PATH`. Link
+it to an account once, in a terminal:
 
 ```bash
-./utils/latex.sh
+bin/botkit-latex pair                      # prints a QR code to scan
+bin/botkit-latex pair --phone +51999999999 # prints a code to type on that phone
 ```
 
-On Debian/Ubuntu, `apt-get` can install TeX Live instead of the script above.
-This is the exact combination `.github/workflows/test.yml` installs and runs the
-render-bound tests against (`docker/render-test-packages.txt`):
+In WhatsApp, open Settings, Linked devices, Link a device. `pair` refuses to run
+without a terminal on stdin and stdout, and when the store already holds a
+device.
 
-```bash
-sudo apt-get install texlive-latex-base texlive-latex-recommended \
-    texlive-latex-extra texlive-fonts-recommended texlive-science \
-    texlive-pictures
-```
-
-Without any of that installed locally, `mise run test:render` builds the same
-toolchain into a disposable Docker image (`docker/render-test.Dockerfile`) and
-runs the full test suite, including the render-bound tests, against it.
-
-Install [mise](https://mise.jdx.dev/) for managing Go and tooling:
-
-```bash
-curl https://mise.run | sh
-```
-
-Clone the repository and set up the project:
-
-```bash
-git clone https://github.com/totallynotdavid/BoTeX
-cd BoTeX
-mise install
-go mod download
-```
-
-## Configuration
-
-Copy the example config and edit the values:
-
-```bash
-cp .env.example .env
-```
-
-The bot needs at minimum a log level and database path. Log level controls
-verbosity and accepts DEBUG, INFO, WARN, or ERROR. Use INFO or WARN in
-production. Debug mode logs all WhatsApp events and operation timing.
-
-Rate limiting defaults to five requests per minute. Adjust with
-`BOTEX_RATE_LIMIT_REQUESTS` and `BOTEX_RATE_LIMIT_PERIOD`. The period accepts Go
-duration strings like "1m" or "30s".
-
-The bot auto-detects binary paths for pdflatex, convert, and cwebp. Override
-with explicit paths if detection fails: `BOTEX_PDFLATEX_PATH`,
-`BOTEX_CONVERT_PATH`, `BOTEX_CWEBP_PATH`.
-
-Database defaults to `file:botex.db?_foreign_keys=on&_journal_mode=WAL`. Change
-the path or disable WAL mode with `BOTEX_DB_PATH` if needed.
-
-Performance tracking has three modes set via `BOTEX_TIMING_LEVEL`: disabled,
-basic (logs slow operations), or detailed (logs all operation timing).
-
-Set `BOTEX_OWNER_JIDS` to a comma-separated list of WhatsApp JIDs (for example
-`15551234567@s.whatsapp.net`) before first startup. Every JID listed there is
-granted the owner rank each time the bot starts, so there is no need to touch
-the database by hand to bootstrap a fresh install. Seeding is idempotent: it
-never creates duplicates, and it never downgrades or changes the rank of a user
-who is already registered with a different rank (a warning is logged instead). A
-malformed JID in `BOTEX_OWNER_JIDS` fails configuration loading with a clear
-error rather than being silently ignored.
-
-By default, the bot ignores messages sent from its own WhatsApp account so it
-cannot be triggered by its own replies. Set `BOTEX_PROCESS_OWN_MESSAGES=true` to
-let commands sent from the bot's own account run.
+`run` never prints a QR code. Started on an unpaired store, it stops with exit
+status 78.
 
 ## Running
 
-Start the bot and scan the QR code when prompted:
+```bash
+mise run dev        # go run ./cmd/latex
+bin/botkit-latex run
+```
+
+The bot stops cleanly on SIGINT and SIGTERM. Logs go to stderr, one text record
+per line, at `BOTKIT_LOG_LEVEL`.
+
+### Exit status
+
+| Status | Meaning                                                                                              |
+| ------ | ---------------------------------------------------------------------------------------------------- |
+| 0      | Stopped by SIGINT or SIGTERM.                                                                        |
+| 1      | Any other failure: bad configuration, an unreadable store, a connection error.                       |
+| 2      | Bad command line.                                                                                    |
+| 78     | The WhatsApp session ended: not paired, logged out, replaced by another process, banned or outdated. |
+
+On 78 the bot logs one ERROR record with the reason and the fix. A logged-out
+device needs `pair` again. A replaced session means another process uses the
+same account, and one of the two must stop. Restarting does not help, so tell
+the service manager not to. A systemd unit:
+
+```ini
+[Unit]
+Description=botkit latex bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=botkit
+WorkingDirectory=/var/lib/botkit
+EnvironmentFile=/etc/botkit/latex.env
+ExecStart=/usr/local/bin/botkit-latex run
+Restart=on-failure
+RestartPreventExitStatus=78
+
+[Install]
+WantedBy=multi-user.target
+```
+
+typst and `prlimit` must be on the service's `PATH`.
+
+## Configuration
+
+The bot reads environment variables, and `mise run dev` loads them from `.env`.
+Copy [.env.example](.env.example), which lists every key with its default. A bad
+value stops the bot at start and names each key that is wrong.
+
+| Key                                                                                    | Default             | Sets                                              |
+| -------------------------------------------------------------------------------------- | ------------------- | ------------------------------------------------- |
+| `BOTKIT_STORE_PATH`                                                                    | `botkit.db`         | SQLite file for the session, users and ranks      |
+| `BOTKIT_LOG_LEVEL`                                                                     | `info`              | `debug`, `info`, `warn` or `error`                |
+| `BOTKIT_OWNER_JIDS`                                                                    | none                | JIDs registered as owners on every start          |
+| `BOTKIT_RATE_LIMIT_REQUESTS`, `BOTKIT_RATE_LIMIT_PERIOD`, `BOTKIT_RATE_LIMIT_COOLDOWN` | 5, `1m`, `5m`       | Requests per user per period, and notice cooldown |
+| `BOTKIT_MAX_IN_FLIGHT`                                                                 | 10                  | Messages handled at once                          |
+| `BOTKIT_OWN_MESSAGES`                                                                  | `false`             | Answer messages from the bot's own account        |
+| `LATEX_MAX_LENGTH`                                                                     | 1000                | Characters of LaTeX per message                   |
+| `LATEX_MAX_IMAGE_BYTES`                                                                | 5242880             | Largest PNG sent                                  |
+| `LATEX_TIMEOUT`                                                                        | `10s`               | Longest a render runs                             |
+| `LATEX_DATA_LIMIT_BYTES`, `LATEX_FILE_SIZE_LIMIT_BYTES`                                | 268435456, 16777216 | typst's data memory and largest written file      |
+
+## Access
+
+A user needs a rank to run any command. The `owner` rank runs everything, and
+`BOTKIT_OWNER_JIDS` registers its holders on every start without touching a user
+who already has another rank. The `user` rank runs `help` and `latex`.
+
+There is no chat command to register users or groups yet. Insert them into the
+store by hand. Users are keyed by phone-number JID, groups by group JID, and a
+group's members still need a rank of their own:
 
 ```bash
-mise run dev
+sqlite3 botkit.db "INSERT INTO users (user_id, rank, registered_by) VALUES ('51999999999@s.whatsapp.net', 'user', 'operator')"
+sqlite3 botkit.db "INSERT INTO registered_groups (group_id, registered_by) VALUES ('120363000000000000@g.us', 'operator')"
 ```
 
-The bot requires authentication before responding to commands. Once your
-WhatsApp JID is listed in `BOTEX_OWNER_JIDS`, it is registered with the owner
-rank automatically.
+Direct chats need no group registration. The ranks and the checks are described
+in [internal/auth](internal/auth/doc.go).
 
-The rank system has three levels: owner (full access), admin (user management),
-and user (basic commands), but only `help` and `latex` are wired up as chat
-commands today; there is no `!register_user` or `!register_group` command yet.
-To bring in further users or groups, insert directly into the `users` or
-`registered_groups` tables (see [internal/auth](internal/auth/doc.go) for the
-ranks and the `RegisterUser`/`RegisterGroup` API those tables back), or add more
-JIDs to `BOTEX_OWNER_JIDS` if they should also be owners.
+## What it renders
 
-## Usage
+The whole message after `!latex` is one math formula, rendered by mitex. It
+handles the amsmath-style math most people type: fractions, roots, sums,
+integrals, matrices, `align`, `\text{...}` and `\textbf{...}`. The `physics`
+macros `\abs`, `\norm`, `\dv` and `\pdv` work.
 
-Commands use the `!` prefix. Send `!help` to see available commands:
+What LaTeX has beyond that does not:
 
+- Document structure and packages: `\documentclass`, `\usepackage` and
+  `\begin{document}`.
+- `mhchem` (`\ce`) and the `physics` macro `\qty`.
+- Any other command mitex does not define.
+
+The bot answers those with the reason, for example `unknown command: \ce`, and
+reacts ❌.
+
+## Development
+
+```bash
+mise run test       # go test -race ./...
+mise run lint       # golangci-lint
 ```
-!help
-!latex \frac{a}{b}
-```
 
-The bot renders equations as WebP images. Rate limiting applies automatically
-with cleanup of expired limits.
+The tests run the real typst binary, so it must be on `PATH`. No test connects
+to WhatsApp. [ARCHITECTURE.md](ARCHITECTURE.md) maps the code.
 
 ---
 

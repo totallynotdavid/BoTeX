@@ -105,3 +105,50 @@ A macro that expands forever (`\newcommand{\x}{\x\x}\x`) allocates until mitex's
 WASM heap cannot grow, which the data limit turns into the trap, so the trap is
 reported as a limit. Macros that call each other expand without allocating and
 end at the deadline.
+
+## The latex binary (`cmd/latex`)
+
+`main` parses the subcommand (`run`, the default, or `pair`), starts a context
+that SIGINT and SIGTERM cancel, and exits with the status `execute` returns. It
+holds no logic of its own.
+
+`run` in `cmd/latex/run.go` is the wiring, and it takes its settings and a
+function that opens the WhatsApp client, so tests drive it with `whatsapp/fake`.
+In order it:
+
+1. opens the SQLite store (`internal/sqlite`);
+2. creates the auth tables with the `user` rank and seeds the owners;
+3. builds the latex command (`internal/latex`) and the rate limiter;
+4. opens the client, which loads the session from the same store;
+5. builds `command.NewRouter("!", auth, latex)` and runs `bot.New(...).Run` with
+   `Options.Groups` on.
+
+Settings come from `internal/config.Env`: the `BOTKIT_*` keys are read by
+`Env.Shared` and the `LATEX_*` keys by `latex.ConfigFromEnv`. `Env` records
+every malformed value and `Err` reports them together, so a bad `.env` fails
+startup once, naming each key.
+
+### Exit status
+
+`exitStatus` maps what `run` returned:
+
+| Returned                                                  | Status |
+| --------------------------------------------------------- | ------ |
+| nil, or the context error after a signal cancelled it     | 0      |
+| a `*bot.SessionEndedError`, wherever it sits in the chain | 78     |
+| anything else                                             | 1      |
+
+`Bot.Run` returns the `*SessionEndedError` even when the caller's context was
+cancelled at the same moment, so a session end is never mistaken for a signal.
+Status 78 is `EX_CONFIG`: the operator has to act (pair again, or stop a second
+process), so the readme's systemd unit lists it in `RestartPreventExitStatus`.
+`main` maps a bad command line to 2.
+
+## Pairing (`internal/whatsapp`)
+
+`Pair` is the only code that shows a QR code or a pairing code, and only
+`cmd/latex pair` calls it. It refuses before opening the store when the phone
+number is malformed or stdin or stdout is not a terminal, and before dialling
+when the store already holds a device. Otherwise it listens on whatsmeow's QR
+channel, prints each code, and returns when the phone confirms, the codes expire
+or WhatsApp rejects the pairing.
