@@ -125,3 +125,30 @@ func waitFor(t *testing.T, condition func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+func TestDescribeReportsTheCommandsDefaults(t *testing.T) {
+	t.Parallel()
+
+	own := config.RateLimit{Requests: 20, Period: 2 * time.Minute, Cooldown: 30 * time.Second}
+
+	defaults := map[string]string{}
+	for _, entry := range cli.Describe(withLimit(own)) {
+		defaults[entry.Key] = entry.Default
+	}
+
+	want := map[string]string{
+		config.KeyRateLimitRequests: "20",
+		config.KeyRateLimitPeriod:   "2m",
+		config.KeyRateLimitCooldown: "30s",
+	}
+
+	for key, value := range want {
+		if defaults[key] != value {
+			t.Errorf("default of %s = %q, want %q", key, defaults[key], value)
+		}
+	}
+
+	if _, ok := defaults[config.KeyStore]; !ok {
+		t.Errorf("Describe() leaves out the shared setting %s", config.KeyStore)
+	}
+}

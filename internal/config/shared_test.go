@@ -123,3 +123,35 @@ func TestSharedBadJIDListWrapsTheParseError(t *testing.T) {
 		}
 	}
 }
+
+func TestSharedEntriesCarryTheDefaultsTheCodeUses(t *testing.T) {
+	t.Parallel()
+
+	def := config.DefaultShared()
+	def.Owners = []string{"51900000007@s.whatsapp.net", "51900000008@s.whatsapp.net"}
+	def.RateLimit = config.RateLimit{Requests: 20, Period: 90 * time.Second, Cooldown: time.Minute}
+
+	env := fromMap(nil)
+	env.Shared(def)
+
+	want := map[string]string{
+		config.KeyStore:             "botkit.db",
+		config.KeyLogLevel:          "info",
+		config.KeyOwners:            "51900000007@s.whatsapp.net,51900000008@s.whatsapp.net",
+		config.KeyAllowOnly:         "",
+		config.KeyRateLimitRequests: "20",
+		config.KeyRateLimitPeriod:   "1m30s",
+		config.KeyRateLimitCooldown: "1m",
+		config.KeyMaxInFlight:       "10",
+		config.KeyOwnMessages:       "false",
+	}
+
+	got := map[string]string{}
+	for _, entry := range env.Entries() {
+		got[entry.Key] = entry.Default
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Entries() = %v, want %v", got, want)
+	}
+}
