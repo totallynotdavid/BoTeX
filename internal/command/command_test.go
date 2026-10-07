@@ -101,7 +101,7 @@ func newService(t *testing.T) *auth.Service {
 func newServiceAndDatabase(t *testing.T) (*auth.Service, *sql.DB) {
 	t.Helper()
 
-	database, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "auth.db"))
+	database, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "auth.db"), sqlite.WithoutSync())
 	if err != nil {
 		t.Fatal(err)
 	}

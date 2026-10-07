@@ -13,10 +13,10 @@ import (
 	"github.com/totallynotdavid/botkit/internal/sqlite"
 )
 
-func open(t *testing.T, path string) *sql.DB {
+func open(t *testing.T, path string, opts ...sqlite.Option) *sql.DB {
 	t.Helper()
 
-	database, err := sqlite.Open(t.Context(), path)
+	database, err := sqlite.Open(t.Context(), path, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,22 +31,17 @@ func open(t *testing.T, path string) *sql.DB {
 	return database
 }
 
-func TestOpenSetsPragmasOnEveryConnection(t *testing.T) {
-	t.Parallel()
+// pragmaPerConnection returns what PRAGMA name reports on each of several
+// connections. A pool opens connections lazily, so they are held at once to
+// make it open them.
+func pragmaPerConnection(t *testing.T, database *sql.DB, name string) []string {
+	t.Helper()
 
-	database := open(t, filepath.Join(t.TempDir(), "bot.db"))
+	const connections = 3
 
-	pragmas := []struct {
-		name string
-		want string
-	}{
-		{"foreign_keys", "1"},
-		{"journal_mode", "wal"},
-		{"busy_timeout", strconv.Itoa(sqlite.BusyTimeout)},
-	}
+	values := make([]string, 0, connections)
 
-	// A pool opens connections lazily; hold several so each is checked.
-	for connIndex := range 3 {
+	for range connections {
 		conn, err := database.Conn(t.Context())
 		if err != nil {
 			t.Fatal(err)
@@ -59,19 +54,51 @@ func TestOpenSetsPragmasOnEveryConnection(t *testing.T) {
 			}
 		})
 
-		for _, pragma := range pragmas {
-			var got string
+		var got string
 
-			err := conn.QueryRowContext(t.Context(), "PRAGMA "+pragma.name).Scan(&got)
-			if err != nil {
-				t.Fatalf("conn %d: PRAGMA %s: %v", connIndex, pragma.name, err)
-			}
+		err = conn.QueryRowContext(t.Context(), "PRAGMA "+name).Scan(&got)
+		if err != nil {
+			t.Fatalf("PRAGMA %s: %v", name, err)
+		}
 
-			if got != pragma.want {
-				t.Errorf("conn %d: PRAGMA %s = %q, want %q", connIndex, pragma.name, got, pragma.want)
-			}
+		values = append(values, got)
+	}
+
+	return values
+}
+
+func requirePragma(t *testing.T, database *sql.DB, name, want string) {
+	t.Helper()
+
+	for i, got := range pragmaPerConnection(t, database, name) {
+		if got != want {
+			t.Errorf("conn %d: PRAGMA %s = %q, want %q", i, name, got, want)
 		}
 	}
+}
+
+func TestOpenSetsPragmasOnEveryConnection(t *testing.T) {
+	t.Parallel()
+
+	database := open(t, filepath.Join(t.TempDir(), "bot.db"))
+
+	requirePragma(t, database, "foreign_keys", "1")
+	requirePragma(t, database, "journal_mode", "wal")
+	requirePragma(t, database, "busy_timeout", strconv.Itoa(sqlite.BusyTimeout))
+}
+
+// Commits wait for the disk unless the caller opts out, and the opt-out holds
+// on every connection.
+func TestOpenSyncsCommitsUnlessToldNot(t *testing.T) {
+	t.Parallel()
+
+	const (
+		off  = "0"
+		full = "2"
+	)
+
+	requirePragma(t, open(t, filepath.Join(t.TempDir(), "synced.db")), "synchronous", full)
+	requirePragma(t, open(t, filepath.Join(t.TempDir(), "unsynced.db"), sqlite.WithoutSync()), "synchronous", off)
 }
 
 func TestOpenPathsNeedingEscapes(t *testing.T) {

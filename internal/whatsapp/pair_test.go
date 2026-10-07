@@ -69,7 +69,7 @@ func TestPairRefusals(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			database, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "bot.db"))
+			database, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "bot.db"), sqlite.WithoutSync())
 			if err != nil {
 				t.Fatal(err)
 			}

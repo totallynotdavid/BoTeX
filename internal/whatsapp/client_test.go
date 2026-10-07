@@ -29,7 +29,7 @@ const ownPhone = "51900000000@s.whatsapp.net"
 func openUnpaired(t *testing.T, path string) *whatsapp.Client {
 	t.Helper()
 
-	database, err := sqlite.Open(t.Context(), path)
+	database, err := sqlite.Open(t.Context(), path, sqlite.WithoutSync())
 	if err != nil {
 		t.Fatal(err)
 	}

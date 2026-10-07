@@ -28,7 +28,7 @@ const waitLimit = 5 * time.Second
 func newStore(t *testing.T) *flow.Store {
 	t.Helper()
 
-	database, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "flow.db"))
+	database, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "flow.db"), sqlite.WithoutSync())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,7 +568,7 @@ func TestNewStoreKeepsWhatIsStored(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "flow.db")
 
-	database, err := sqlite.Open(t.Context(), path)
+	database, err := sqlite.Open(t.Context(), path, sqlite.WithoutSync())
 	if err != nil {
 		t.Fatal(err)
 	}

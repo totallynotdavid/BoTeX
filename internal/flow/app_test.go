@@ -46,6 +46,39 @@ func (s spy) Handle(ctx context.Context, msg bot.Message, chat *bot.Chat) error 
 	return err //nolint:wrapcheck // the runtime sees the app's error as it is.
 }
 
+// handledMessage is what the app logs once a turn is stored, before it sends
+// the replies.
+const handledMessage = "message handled"
+
+// tap passes records on and signals each time the app logs handledMessage, so
+// a test can act at the moment a turn is stored instead of polling for it.
+type tap struct {
+	slog.Handler
+
+	handled chan<- struct{}
+}
+
+func (h tap) Handle(ctx context.Context, record slog.Record) error {
+	err := h.Handler.Handle(ctx, record)
+
+	if record.Message == handledMessage {
+		select {
+		case h.handled <- struct{}{}:
+		default:
+		}
+	}
+
+	return err //nolint:wrapcheck // the wrapped handler's error as it is.
+}
+
+func (h tap) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return tap{Handler: h.Handler.WithAttrs(attrs), handled: h.handled}
+}
+
+func (h tap) WithGroup(name string) slog.Handler {
+	return tap{Handler: h.Handler.WithGroup(name), handled: h.handled}
+}
+
 // rig is the flow app running under bot.Run over a fake client, a real store
 // in a temporary SQLite file, and vouchers in a temporary directory.
 type rig struct {
@@ -55,6 +88,7 @@ type rig struct {
 	flow       *fsm.Flow
 	voucherDir string
 	logs       *bytes.Buffer
+	handled    chan struct{}
 	done       chan error
 	stop       context.CancelFunc
 	stopped    chan struct{}
@@ -77,7 +111,7 @@ func withDelay(delay time.Duration) func(*settings) {
 func openDB(t *testing.T) *sql.DB {
 	t.Helper()
 
-	database, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "flow.db"))
+	database, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "flow.db"), sqlite.WithoutSync())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,11 +157,15 @@ func start(t *testing.T, opts ...func(*settings)) *rig {
 		flow:       set.flow,
 		voucherDir: filepath.Join(t.TempDir(), "vouchers"),
 		logs:       &bytes.Buffer{},
+		handled:    make(chan struct{}, 1),
 		done:       make(chan error, waitLimit.Milliseconds()),
 		stopped:    make(chan struct{}),
 	}
 
-	log := slog.New(slog.NewJSONHandler(env.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	log := slog.New(tap{
+		Handler: slog.NewJSONHandler(env.logs, &slog.HandlerOptions{Level: slog.LevelDebug}),
+		handled: env.handled,
+	})
 
 	app, err := flow.New(set.flow, store, flow.NewActions(env.voucherDir), flow.Config{TypingDelay: set.delay}, log)
 	if err != nil {
@@ -989,20 +1027,11 @@ func TestCancelledContextDuringTheTypingDelaySendsNothing(t *testing.T) {
 
 	env.client.Deliver(bot.Message{Sender: userAna, PushName: "Ana", Text: "precios"})
 
-	// The reply is stored before the delay starts.
-	deadline := time.Now().Add(waitLimit)
-
-	for {
-		count, err := env.store.MessageCount(t.Context(), userAna)
-		if err == nil && count == 2 {
-			break
-		}
-
-		if time.Now().After(deadline) {
-			t.Fatalf("the turn was not stored: count = %d, error = %v", count, err)
-		}
-
-		time.Sleep(time.Millisecond)
+	// The turn is stored before the delay starts.
+	select {
+	case <-env.handled:
+	case <-time.After(waitLimit):
+		t.Fatal("the turn was not stored")
 	}
 
 	env.stop()
@@ -1014,6 +1043,7 @@ func TestCancelledContextDuringTheTypingDelaySendsNothing(t *testing.T) {
 
 	requireSent(t, env.sent())
 	requireEqual(t, "CurrentNode", env.state(t).CurrentNode, "CONSULTED_PRICE")
+	requireEqual(t, "stored messages", len(env.history(t)), 2)
 }
 
 func TestTypingDelayWaitsBeforeEachReply(t *testing.T) {
