@@ -64,16 +64,7 @@ type settings struct {
 
 // readSettings reads the environment. It fails naming every bad key.
 func readSettings(cmd Command, env *config.Env) (settings, error) {
-	defaults := config.DefaultShared()
-	if cmd.RateLimit != (config.RateLimit{}) {
-		defaults.RateLimit = cmd.RateLimit
-	}
-
-	cfg := settings{
-		shared: env.Shared(defaults),
-		ranks:  cmd.Ranks,
-		build:  cmd.Configure(env),
-	}
+	cfg := read(cmd, env)
 
 	err := env.Err()
 	if err != nil {
@@ -81,6 +72,32 @@ func readSettings(cmd Command, env *config.Env) (settings, error) {
 	}
 
 	return cfg, nil
+}
+
+// read reads every setting of cmd from env. Callers inspect env.Err for
+// malformed values.
+func read(cmd Command, env *config.Env) settings {
+	defaults := config.DefaultShared()
+	if cmd.RateLimit != (config.RateLimit{}) {
+		defaults.RateLimit = cmd.RateLimit
+	}
+
+	return settings{
+		shared: env.Shared(defaults),
+		ranks:  cmd.Ranks,
+		build:  cmd.Configure(env),
+	}
+}
+
+// Describe lists every setting cmd reads, shared ones included, with the
+// default cmd uses for each. It reads an empty environment, where no setting
+// can be malformed.
+func Describe(cmd Command) []config.Entry {
+	env := config.New(func(string) (string, bool) { return "", false })
+
+	read(cmd, env)
+
+	return env.Entries()
 }
 
 // Main runs cmd as the process: it parses the subcommand from os.Args, stops

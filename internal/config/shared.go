@@ -2,9 +2,11 @@ package config
 
 import (
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/totallynotdavid/botkit/internal/auth"
+	"github.com/totallynotdavid/botkit/internal/bot"
 )
 
 // Environment keys every bot reads.
@@ -45,9 +47,8 @@ type Shared struct {
 }
 
 const (
-	defaultRequests    = 5
-	defaultCooldown    = 5 * time.Minute
-	defaultMaxInFlight = 10
+	defaultRequests = 5
+	defaultCooldown = 5 * time.Minute
 )
 
 // DefaultShared returns the settings of a bot that sets nothing.
@@ -60,7 +61,7 @@ func DefaultShared() Shared {
 			Period:   time.Minute,
 			Cooldown: defaultCooldown,
 		},
-		MaxInFlight: defaultMaxInFlight,
+		MaxInFlight: bot.DefaultMaxInFlight,
 	}
 }
 
@@ -91,6 +92,8 @@ func (e *Env) Shared(def Shared) Shared {
 // jids reads the JID list at key into list, which keeps its value when the key
 // is unset or malformed.
 func (e *Env) jids(key string, list *[]string) {
+	e.record(key, strings.Join(*list, ","))
+
 	raw, set := e.value(key)
 	if !set {
 		return

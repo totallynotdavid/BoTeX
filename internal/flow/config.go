@@ -17,6 +17,15 @@ const (
 // relative to the working directory.
 const DefaultVoucherDir = "vouchers"
 
+const requestsPerMinute = 20
+
+// DefaultRateLimit is the bot's own default for the BOTKIT_RATE_LIMIT_* keys.
+// A customer walking a menu sends several messages a minute, more than the
+// shared default allows.
+func DefaultRateLimit() config.RateLimit {
+	return config.RateLimit{Requests: requestsPerMinute, Period: time.Minute, Cooldown: time.Minute}
+}
+
 // Config is what the flow bot reads from its environment.
 type Config struct {
 	// File is the flow file. Empty means the flow built into the binary.
