@@ -19,6 +19,10 @@ run = "go run ./cmd/latex"
 description = "Start the flow bot locally"
 run = "go run ./cmd/flow"
 
+[tasks."env:example"]
+description = "Rewrite .env.example from the settings the bots read"
+run = "go test ./internal/envfile -run TestExampleIsCurrent -update"
+
 [tasks.test]
 description = "Run all tests"
 run = "go test -race ./..."
