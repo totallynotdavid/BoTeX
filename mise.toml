@@ -5,6 +5,7 @@ _.file = ".env"
 go = "1.27.1"
 golangci-lint = "2.14.0"
 typst = "0.15.1"
+sqlite = "3.53.4"
 
 [tasks.install]
 description = "Install Go dependencies"
