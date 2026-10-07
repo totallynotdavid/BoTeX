@@ -16,10 +16,19 @@ import (
 // connection's write lock before failing with SQLITE_BUSY.
 const busyTimeout = 5000
 
+// Option changes how Open sets up the database.
+type Option func(query url.Values)
+
+// WithoutSync stops commits waiting for the disk. A crash or power cut can
+// lose the latest writes, so callers should use it only for tests.
+func WithoutSync() Option {
+	return func(query url.Values) { query.Add("_pragma", "synchronous(OFF)") }
+}
+
 // Open opens or creates the database file at path. Every connection has
 // foreign keys on, which whatsmeow's store requires, and write-ahead logging,
 // so readers never block the writer.
-func Open(ctx context.Context, path string) (*sql.DB, error) {
+func Open(ctx context.Context, path string, opts ...Option) (*sql.DB, error) {
 	query := url.Values{}
 	query.Add("_pragma", "foreign_keys(1)")
 	query.Add("_pragma", "journal_mode(WAL)")
@@ -27,6 +36,10 @@ func Open(ctx context.Context, path string) (*sql.DB, error) {
 	// A write transaction takes the lock when it begins, so two writers wait
 	// on busy_timeout instead of one failing when it upgrades from reading.
 	query.Set("_txlock", "immediate")
+
+	for _, opt := range opts {
+		opt(query)
+	}
 
 	dsn := (&url.URL{Scheme: "file", Opaque: url.PathEscape(path), RawQuery: query.Encode()}).String()
 
