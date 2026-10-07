@@ -32,7 +32,9 @@ starts the runtime. It also implements the `run` and `pair` subcommands.
 settings. It records malformed values while reading and returns them together
 before the database or WhatsApp client is opened. Bot-specific settings are read
 by [`internal/latex`](internal/latex) and [`internal/flow`](internal/flow)
-through this package.
+through this package. Each read also records the setting's default, and
+[`internal/envfile`](internal/envfile) writes `.env.example` from those records,
+so the file never repeats a default by hand.
 
 ## Runtime boundary
 

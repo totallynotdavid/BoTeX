@@ -27,6 +27,10 @@ the Go tests with the race detector. Tests use the fake WhatsApp client and do
 not connect to WhatsApp. LaTeX tests run the real Typst binary, so Typst and
 `prlimit` must be available on `PATH`.
 
+`.env.example` is generated from the settings the bots read. After adding or
+changing a setting, run `mise run env:example` and give the setting an
+explanation in [`internal/envfile`](../internal/envfile/envfile.go).
+
 The source map and package boundaries are in
 [ARCHITECTURE.md](../ARCHITECTURE.md). Configuration and operation procedures
 are in [configuration.md](configuration.md) and [operations.md](operations.md).
