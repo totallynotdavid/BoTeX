@@ -121,6 +121,10 @@ func isGreetingMessage(text string) bool {
 	return text == "!start" || text == "!menu" || isGreeting(text)
 }
 
+// firstVisit records the user's first visit and reports whether this call made it.
+// The primary key and DO NOTHING let at most one of several concurrent
+// greetings see true. The state lives only in the database, so every process
+// sharing it agrees.
 func (a *App) firstVisit(ctx context.Context, user bot.JID) (bool, error) {
 	result, err := a.database.ExecContext(ctx,
 		`INSERT INTO latex_user_state (user_id, first_seen) VALUES (?, CURRENT_TIMESTAMP) ON CONFLICT(user_id) DO NOTHING`, user)
