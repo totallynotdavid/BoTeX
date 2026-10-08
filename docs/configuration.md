@@ -41,6 +41,7 @@ per cooldown.
 
 | Variable                      | Default               | Meaning                                              |
 | ----------------------------- | --------------------- | ---------------------------------------------------- |
+| `LATEX_TYPST_BIN`             | `typst`               | The `typst` executable: a path, or a name on `PATH`. |
 | `LATEX_MAX_LENGTH`            | `1000`                | Most characters of LaTeX in one message, at least 1. |
 | `LATEX_MAX_IMAGE_BYTES`       | `5242880` (5 MiB)     | Largest PNG the bot sends.                           |
 | `LATEX_TIMEOUT`               | `10s`                 | Longest a render may run, at least 1ms.              |
@@ -48,6 +49,10 @@ per cooldown.
 | `LATEX_FILE_SIZE_LIMIT_BYTES` | `16777216` (16 MiB)   | Largest file the `typst` process may write.          |
 
 Each image side is also capped at 4096 pixels. The cap is fixed.
+
+The bot exits at start when `LATEX_TYPST_BIN` names no executable. Under a
+service manager, set it to the path of the binary itself: a version manager's
+shim on `PATH` fails when the service runs with another `HOME`.
 
 ## Flow bot
 

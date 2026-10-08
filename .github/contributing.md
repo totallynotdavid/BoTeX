@@ -5,22 +5,30 @@ boundaries. [AGENTS.md](../AGENTS.md) holds the rules every change follows.
 
 ## Set up
 
-Follow [Install](../readme.md#install) in the README. The latex tests also need
-`prlimit` from util-linux on `PATH`. `mise run test` uses the race detector,
-which needs a C compiler such as `gcc`.
+Follow [Install](../readme.md#install) in the README. `mise install` installs
+the versions pinned in [`mise.toml`](../mise.toml), including Zig and Bun. Zig
+is the C compiler for `go test -race`, which needs cgo, so a clean host needs no
+`gcc`; Bun runs the Markdown formatter. The latex tests also need `prlimit` from
+util-linux on `PATH`.
 
 ## Tasks
 
-| Task                   | Does                                                           |
-| ---------------------- | -------------------------------------------------------------- |
-| `mise run build`       | Builds `bin/botkit-flow` and `bin/botkit-latex`.               |
-| `mise run test`        | Runs `go test -race ./...`.                                    |
-| `mise run lint:check`  | Verifies the lint config and checks formatting and lint rules. |
-| `mise run lint`        | Formats the code and applies lint fixes.                       |
-| `mise run ci`          | Runs `build`, `lint:check`, and `test`.                        |
-| `mise run env:example` | Rewrites `.env.example` from the settings the bots read.       |
-| `mise run dev:flow`    | Runs the flow bot from source, loading `.env`.                 |
-| `mise run dev:latex`   | Runs the latex bot from source, loading `.env`.                |
+| Task                     | Does                                                           |
+| ------------------------ | -------------------------------------------------------------- |
+| `mise run build`         | Builds `bin/botkit-flow` and `bin/botkit-latex`.               |
+| `mise run test`          | Runs `go test -race ./...` with Zig as the C compiler.         |
+| `mise run install:bin`   | Builds and installs both bots into `$PREFIX/bin`.              |
+| `mise run install:units` | Installs the systemd units into `$UNIT_DIR`.                   |
+| `mise run docs:format`   | Formats the Markdown files.                                    |
+| `mise run lint:check`    | Verifies the lint config and checks formatting and lint rules. |
+| `mise run lint`          | Formats the code and applies lint fixes.                       |
+| `mise run ci`            | Runs `build`, `lint:check`, and `test`.                        |
+| `mise run env:example`   | Rewrites `.env.example` from the settings the bots read.       |
+| `mise run dev:flow`      | Runs the flow bot from source, loading `.env`.                 |
+| `mise run dev:latex`     | Runs the latex bot from source, loading `.env`.                |
+
+`install:bin` installs into `$PREFIX/bin` (default `/usr/local/bin`) and
+`install:units` into `$UNIT_DIR` (default `/etc/systemd/system`).
 
 Run `mise run ci` before you open a pull request. GitHub Actions runs the build,
 `go vet`, the tests, and golangci-lint.
@@ -45,5 +53,5 @@ one, give it an explanation in
 Format Markdown to 80 columns:
 
 ```bash
-bunx prettier --print-width 80 --prose-wrap always --write '**/*.md'
+mise run docs:format
 ```

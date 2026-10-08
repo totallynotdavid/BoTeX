@@ -1,7 +1,7 @@
 # The latex bot
 
 The latex bot renders `!latex <equation>` as a PNG. It answers in direct chats
-and in groups. It needs `typst` and `prlimit` on `PATH` ([running](running.md)).
+and in groups. It needs `typst` and `prlimit` ([running](running.md)).
 
 ## Access
 
@@ -24,23 +24,30 @@ BOTKIT_OWNER_JIDS=51999999999@s.whatsapp.net
 The seed creates a missing owner. It leaves a user who already has another rank,
 or who is deactivated, unchanged, and logs a warning.
 
-Register other users and groups in the database. Replace `botkit.db` with
-`BOTKIT_STORE_PATH` when it is set:
+Register other users and groups with the `user` and `group` commands. They work
+while the bot runs, and the bot applies a change on the next message:
 
 ```bash
-mise exec -- sqlite3 botkit.db \
-  "INSERT INTO users (user_id, rank, registered_by) VALUES ('51999999999@s.whatsapp.net', 'user', 'operator'); INSERT INTO registered_groups (group_id, registered_by) VALUES ('120363000000000000@g.us', 'operator');"
+mise exec -- bin/botkit-latex user add 51999999999@s.whatsapp.net
+mise exec -- bin/botkit-latex user add 51999999998@s.whatsapp.net --rank owner
+mise exec -- bin/botkit-latex user list
+mise exec -- bin/botkit-latex user remove 51999999999@s.whatsapp.net
+mise exec -- bin/botkit-latex group add 120363000000000000@g.us
+mise exec -- bin/botkit-latex group list
+mise exec -- bin/botkit-latex group remove 120363000000000000@g.us
 ```
 
-Set `active` to `0` on a row to deactivate it:
+`user add` gives the `user` rank unless `--rank` names another. A group JID ends
+in `@g.us`. `remove` deactivates the row, so the user or group can no longer use
+the bot, and `add` registers it again. To change a rank, remove the user, then
+add them again. The tables are owned by [`internal/auth`](../internal/auth).
 
-```bash
-mise exec -- sqlite3 botkit.db \
-  "UPDATE users SET active = 0 WHERE user_id = '51999999999@s.whatsapp.net';"
-```
-
-`registered_groups` has the same column. The tables are owned by
-[`internal/auth`](../internal/auth).
+The commands open the bot's database and fail with an error naming the path when
+it does not exist; they never create one. Run them in the bot's working
+directory (`/var/lib/botkit-latex` under the shipped unit), or with the same
+`BOTKIT_STORE_PATH`, and pair or start the bot once first. Under mise, `.env`
+supplies the variable. [Running](running.md#operator-commands) shows the
+commands for a service.
 
 ## Commands
 

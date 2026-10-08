@@ -14,25 +14,25 @@ mise exec -- go list -f '{{.ImportPath}}: {{join .Imports " "}}' ./...
 
 ## Packages
 
-| Package                                               | Owns                                                                                     |
-| ----------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| [`cmd/latex`](../cmd/latex/main.go)                   | The latex bot's ranks, its `!` command router, and group support.                        |
-| [`cmd/flow`](../cmd/flow/main.go)                     | The flow bot's flow loading, store, and actions. It accepts direct messages only.        |
-| [`internal/cli`](../internal/cli)                     | The subcommands `run`, `pair`, and `--repl`, the assembly of a bot, and the exit status. |
-| [`internal/config`](../internal/config)               | Typed environment settings. It collects every malformed value before anything is opened. |
-| [`internal/envfile`](../internal/envfile)             | `.env.example`, generated from the settings the bots read.                               |
-| [`internal/bot`](../internal/bot)                     | The runtime: events, filtering, handler goroutines, the `Transport` interface.           |
-| [`internal/whatsapp`](../internal/whatsapp)           | The only package that imports whatsmeow: connection, pairing, event translation.         |
-| [`internal/whatsapp/fake`](../internal/whatsapp/fake) | An in-memory `Transport` for the REPL and the tests.                                     |
-| [`internal/sqlite`](../internal/sqlite)               | Opening the shared database with foreign keys, WAL mode, and a busy timeout.             |
-| [`internal/ratelimit`](../internal/ratelimit)         | The per-user sliding-window limiter.                                                     |
-| [`internal/auth`](../internal/auth)                   | Users, ranks, registered groups, and the authorization decision.                         |
-| [`internal/command`](../internal/command)             | Routing `!name args` to commands, the permission check, reactions, and `help`.           |
-| [`internal/latex`](../internal/latex)                 | The `latex` command, its limits, the embedded Mitex package, and the welcome.            |
-| [`internal/typst`](../internal/typst)                 | Running `typst` under resource limits in a private directory.                            |
-| [`internal/flow`](../internal/flow)                   | User state, conversation history, actions, templates, and replies.                       |
-| [`internal/flow/fsm`](../internal/flow/fsm)           | Parsing and validating a flow, and choosing the next node.                               |
-| [`internal/flow/names`](../internal/flow/names)       | Picking a first name from typed text or a profile name.                                  |
+| Package                                               | Owns                                                                                                                                                             |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`cmd/latex`](../cmd/latex/main.go)                   | The latex bot's ranks, its `!` command router, and group support.                                                                                                |
+| [`cmd/flow`](../cmd/flow/main.go)                     | The flow bot's flow loading, store, and actions. It accepts direct messages only.                                                                                |
+| [`internal/cli`](../internal/cli)                     | The subcommands `run`, `pair`, `user`, `group`, and `--repl`, the assembly of a bot, and the exit status. A bot adds its own subcommands, as `handoff` for flow. |
+| [`internal/config`](../internal/config)               | Typed environment settings. It collects every malformed value before anything is opened.                                                                         |
+| [`internal/envfile`](../internal/envfile)             | `.env.example`, generated from the settings the bots read.                                                                                                       |
+| [`internal/bot`](../internal/bot)                     | The runtime: events, filtering, handler goroutines, the `Transport` interface.                                                                                   |
+| [`internal/whatsapp`](../internal/whatsapp)           | The only package that imports whatsmeow: connection, pairing, event translation.                                                                                 |
+| [`internal/whatsapp/fake`](../internal/whatsapp/fake) | An in-memory `Transport` for the REPL and the tests.                                                                                                             |
+| [`internal/sqlite`](../internal/sqlite)               | Opening the shared database with foreign keys, WAL mode, and a busy timeout, or only if it exists.                                                               |
+| [`internal/ratelimit`](../internal/ratelimit)         | The per-user sliding-window limiter.                                                                                                                             |
+| [`internal/auth`](../internal/auth)                   | Users, ranks, registered groups, and the authorization decision.                                                                                                 |
+| [`internal/command`](../internal/command)             | Routing `!name args` to commands, the permission check, reactions, and `help`.                                                                                   |
+| [`internal/latex`](../internal/latex)                 | The `latex` command, its limits, the embedded Mitex package, and the welcome.                                                                                    |
+| [`internal/typst`](../internal/typst)                 | Running the `typst` binary under resource limits in a private directory.                                                                                         |
+| [`internal/flow`](../internal/flow)                   | User state, conversation history, actions, templates, and replies.                                                                                               |
+| [`internal/flow/fsm`](../internal/flow/fsm)           | Parsing and validating a flow, and choosing the next node.                                                                                                       |
+| [`internal/flow/names`](../internal/flow/names)       | Picking a first name from typed text or a profile name.                                                                                                          |
 
 ## Assembly
 
@@ -83,23 +83,26 @@ and history. Its per-user lock is in memory, which is why
 `user_state` holds one row per user. `conversation_history` is the append-only
 record of text in both directions, including reminders.
 
-| Column                                                     | Meaning                                       | Written by                                                                                                                              |
-| ---------------------------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `current_node`                                             | Current node of the flow                      | An inbound turn: a matching transition, a restart at `start_node`, or no change on a fallback.                                          |
-| `user_name`                                                | Name from the profile or `save_user_name`     | An inbound turn on a name transition: set, cleared, or kept.                                                                            |
-| `course_interest`, `selected_course_id`, `consulted_price` | Lead facts                                    | Only their named inbound actions.                                                                                                       |
-| `last_choice`                                              | Last choice in the guide                      | An inbound `remember_choice` action. The reminder reads it.                                                                             |
-| `follow_up_opt_in`                                         | Consent to reminders                          | An inbound `opt_in_follow_up` (true) or `opt_out_follow_up` (false). The scheduler only reads it.                                       |
-| `last_follow_up`                                           | UTC time of the latest claim or reminder sent | The scheduler. See [Reminders](#reminders). Inbound turns never change it.                                                              |
-| `voucher_path`, `requires_human_agent`                     | Latest voucher and the hand-off flag          | Inbound actions.                                                                                                                        |
-| `last_updated`                                             | Time of the last committed inbound turn       | Every inbound turn, including fallbacks and unsupported media. A reminder never changes it, so it cannot reset the 24-hour clock below. |
+| Column                                                     | Meaning                                       | Written by                                                                                                                                  |
+| ---------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `current_node`                                             | Current node of the flow                      | An inbound turn: a matching transition, a restart at `start_node`, or no change on a fallback.                                              |
+| `user_name`                                                | Name from the profile or `save_user_name`     | An inbound turn on a name transition: set, cleared, or kept.                                                                                |
+| `course_interest`, `selected_course_id`, `consulted_price` | Lead facts                                    | Only their named inbound actions.                                                                                                           |
+| `last_choice`                                              | Last choice in the guide                      | An inbound `remember_choice` action. The reminder reads it.                                                                                 |
+| `follow_up_opt_in`                                         | Consent to reminders                          | An inbound `opt_in_follow_up` (true) or `opt_out_follow_up` (false). The scheduler only reads it.                                           |
+| `last_follow_up`                                           | UTC time of the latest claim or reminder sent | The scheduler. See [Reminders](#reminders). Inbound turns never change it.                                                                  |
+| `voucher_path`                                             | Latest voucher                                | An inbound voucher action.                                                                                                                  |
+| `requires_human_agent`                                     | The hand-off flag                             | An inbound turn raises it, and only the turn that escalates. A save never lowers it. Only `handoff clear` lowers it, from a second process. |
+| `last_updated`                                             | Time of the last committed inbound turn       | Every inbound turn, including fallbacks and unsupported media. A reminder never changes it, so it cannot reset the 24-hour clock below.     |
 
 An inbound turn writes the row and appends to `conversation_history`. The
 scheduler changes one column, `last_follow_up`, when it claims a reminder and
 when it releases the claim ([Reminders](#reminders)). It never changes
 `current_node`, `user_name`, the lead facts, `last_choice`, the consent, the
 voucher or hand-off columns, or `last_updated`. After a send it only appends to
-`conversation_history`. The per-user lock serializes every write.
+`conversation_history`. The per-user lock serializes the bot's own writes. The
+one write from outside the bot, `handoff clear`, takes no lock; see
+[Data ownership](#data-ownership).
 
 A conversation is stale when the later of `last_updated` and `last_follow_up` is
 more than 24 hours old. A stale conversation restarts at `start_node`.
@@ -126,11 +129,12 @@ A user who opts out after the claim still gets the reminder already claimed.
 
 ## Latex app
 
-`internal/latex` passes one expression to `internal/typst`, which runs `typst`
-with the embedded Mitex package and never downloads packages. The command turns
-empty input, invalid input, and limit violations into chat notices. The router
-adds the reaction and returns the error to the runtime. The app also answers
-greetings and keeps the `latex_user_state` table.
+`internal/latex` passes one expression to `internal/typst`, which runs the
+binary named by `LATEX_TYPST_BIN` with the embedded Mitex package and never
+downloads packages. The command turns empty input, invalid input, and limit
+violations into chat notices. The router adds the reaction and returns the error
+to the runtime. The app also answers greetings and keeps the `latex_user_state`
+table.
 
 ## Data ownership
 
@@ -142,3 +146,27 @@ internal/latex     latex_user_state
 ```
 
 The CLI opens one SQLite database for the session and the app's data.
+
+A second process writes to that database while the bot runs: the operator
+commands `user` and `group` (latex bot) and `handoff` (flow bot). Each owns one
+transition, and the package that owns the table still defines it:
+
+| Command          | Process           | Writes                                       | Owner           |
+| ---------------- | ----------------- | -------------------------------------------- | --------------- |
+| `user add`       | the command       | A `users` row, active.                       | `internal/auth` |
+| `user remove`    | the command       | `users.active = 0`.                          | `internal/auth` |
+| `group add`      | the command       | A `registered_groups` row, active.           | `internal/auth` |
+| `group remove`   | the command       | `registered_groups.active = 0`.              | `internal/auth` |
+| `handoff clear`  | the command       | `user_state.requires_human_agent = 0`.       | `internal/flow` |
+| Owner seeding    | the bot, at start | Missing owner rows in `users`.               | `internal/auth` |
+| Turns, follow-up | the bot           | The rest of `user_state`, both history rows. | `internal/flow` |
+
+The commands open an existing database only. A missing file is an error that
+names the path, and the command creates nothing, so a command run from another
+directory or without the bot's environment cannot report success on a database
+the bot does not read. The database exists after `pair` or the first `run`.
+
+The bot reads `users` and `registered_groups` on every message, so a change
+takes effect at once without a restart. The per-user lock covers only the bot's
+own turns. The commands take none: each is one atomic statement, and the flow
+store's saves leave `requires_human_agent` alone unless the turn raises it.

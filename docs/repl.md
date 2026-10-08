@@ -21,9 +21,9 @@ file to keep a session apart from a real one.
 
 The flow bot starts Luma, the built-in flow. A path through it: `misteryo`,
 `sí`, `recordatorios`, `sí`. The reaction ✅ follows the first `sí` and not the
-reminder consent. That `sí` runs `create_new_lead`, which stores nothing: the
-choice was stored at `misteryo`. `qué elegí` shows the stored memory. The REPL
-does not run the reminder scheduler.
+reminder consent. That `sí` stores nothing: the choice was stored at `misteryo`,
+and the route only carries the reaction. `qué elegí` shows the stored memory.
+The REPL does not run the reminder scheduler.
 
 ## Rank
 

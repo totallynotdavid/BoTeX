@@ -28,7 +28,8 @@ A smaller flow. The `help` global transition leads to the hand-off node:
       "transitions": [
         {
           "condition": { "type": "exact", "value": ["1"] },
-          "target": "PRICES"
+          "target": "PRICES",
+          "react": "👍"
         }
       ]
     },
@@ -56,27 +57,32 @@ Every flow must contain a node named `NEEDS_ASSISTANCE`.
 
 The bot reads the file once at startup and stops with an error when it cannot
 read or validate it. It does not fall back to the built-in flow. A JSON syntax
-error or an unknown field is reported alone. The loader reports every other
-mistake in one pass. These include an invalid start node, a missing help node, a
-transition to a missing node, an include of a missing group, an unknown
-condition type, an invalid regular expression, a blank or missing condition
-value, and an unknown media kind. Once the file is valid, the bot also rejects
-unknown action names, so a typo stops the bot at startup.
+error or an unknown field, such as the removed `message.type`, is reported
+alone. The loader reports every other mistake in one pass, each with where it
+sits. These include an invalid start node, a missing help node, a transition to
+a missing node, an include of a missing group, an unknown condition type, an
+invalid regular expression, a blank or missing condition value, an unknown media
+kind, an action name the bot does not know, and a `react` that is not exactly
+one emoji.
 
 ## Nodes
 
 | Field                       | Meaning                                                  |
 | --------------------------- | -------------------------------------------------------- |
 | `message.content`           | The text the bot sends on entering the node.             |
-| `message.type`              | Not read. The built-in flow sets it to `text`.           |
 | `title`                     | A label. `{{course_name}}` and `{{last_choice}}` use it. |
 | `transitions`               | Transitions out of the node.                             |
 | `include_transitions`       | Name of a transition group to try before `transitions`.  |
 | `action`                    | Action that runs when the user enters the node.          |
+| `react`                     | Emoji for a turn that enters the node.                   |
 | `ignore_global_transitions` | Skip global transitions, except those to the help node.  |
 | `fallback_message`          | Reply when no transition matches.                        |
 
-A transition has a `condition`, a `target` node, and an optional `action`.
+A transition has a `condition`, a `target` node, an optional `action`, and an
+optional `react`. `react` is exactly one emoji, such as `✅`. The bot reacts to
+the user's message with it once the turn is stored and the replies are sent.
+When a transition and the node it enters both have a `react`, the transition's
+wins. A fallback and a turn whose action failed never react.
 
 ## Routing
 
@@ -128,24 +134,23 @@ hand-off flag ([hand-off](flow-bot.md#hand-off-to-a-person)).
 
 ## Actions
 
-An action changes what the bot stores about the user. The last column marks the
-actions after which the bot reacts ✅ to the message: the turn counts as a
-success when the transition's action or the entered node's action is marked.
+An action changes what the bot stores about the user. A name outside this table
+fails the load. To react without storing anything, give the transition a `react`
+and no action.
 
-| Action                          | Effect                                                                 | ✅  |
-| ------------------------------- | ---------------------------------------------------------------------- | --- |
-| `create_new_lead`               | Nothing is stored.                                                     | yes |
-| `save_user_name`                | Stores the user's name, without an introduction such as `me llamo`.    | yes |
-| `clear_user_name`               | Removes the stored name.                                               | no  |
-| `set_selected_course`           | Stores the node's ID for `{{course_name}}`.                            | yes |
-| `remember_choice`               | Stores the node's ID as `{{last_choice}}`.                             | no  |
-| `opt_in_follow_up`              | Records permission for [reminders](flow-bot.md#reminders).             | no  |
-| `opt_out_follow_up`             | Removes permission for reminders.                                      | no  |
-| `update_lead_interest_beginner` | Stores `beginner` as the interest.                                     | yes |
-| `update_lead_interest_advanced` | Stores `advanced` as the interest.                                     | yes |
-| `update_lead_consulted_price`   | Records that the user asked for prices.                                | no  |
-| `save_payment_voucher`          | Saves an image. A message of another kind sets `requires_human_agent`. | yes |
-| `escalate_to_human_agent`       | Sets `requires_human_agent`.                                           | no  |
+| Action                          | Effect                                                                 |
+| ------------------------------- | ---------------------------------------------------------------------- |
+| `save_user_name`                | Stores the user's name, without an introduction such as `me llamo`.    |
+| `clear_user_name`               | Removes the stored name.                                               |
+| `set_selected_course`           | Stores the node's ID for `{{course_name}}`.                            |
+| `remember_choice`               | Stores the node's ID as `{{last_choice}}`.                             |
+| `opt_in_follow_up`              | Records permission for [reminders](flow-bot.md#reminders).             |
+| `opt_out_follow_up`             | Removes permission for reminders.                                      |
+| `update_lead_interest_beginner` | Stores `beginner` as the interest.                                     |
+| `update_lead_interest_advanced` | Stores `advanced` as the interest.                                     |
+| `update_lead_consulted_price`   | Records that the user asked for prices.                                |
+| `save_payment_voucher`          | Saves an image. A message of another kind sets `requires_human_agent`. |
+| `escalate_to_human_agent`       | Sets `requires_human_agent`.                                           |
 
 `save_user_name` keeps the old name when the text holds no name. It asks again
 when the text does not look like a name.

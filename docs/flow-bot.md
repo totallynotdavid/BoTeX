@@ -38,9 +38,10 @@ start message opens with `{{greeting}}`, which a flow author may leave out
 ([templates](flow-format.md#templates)). A reminder the bot sent counts as
 activity, so a reply to it resumes where the user paused.
 
-The bot reacts ✅ after the actions that
-[the flow format](flow-format.md#actions) marks, never after a fallback or a
-failed action.
+The bot reacts only where the flow file gives the route a `react`
+([the flow format](flow-format.md#nodes)), never after a fallback or a failed
+action. The built-in flow reacts ✅ when a user confirms a club or sends a
+receipt.
 
 ## Reminders
 
@@ -67,21 +68,23 @@ before it sends.
 The bot sends no message to a person. The `escalate_to_human_agent` action, or
 `save_payment_voucher` on a message that is not an image, sets
 `requires_human_agent` in the `user_state` table. The bot never clears it. List
-the users who need help:
+the users who wait for a person, and clear one after you have helped them:
 
 ```bash
-mise exec -- sqlite3 botkit.db \
-  "SELECT user_id, current_node FROM user_state WHERE requires_human_agent;"
+mise exec -- bin/botkit-flow handoff list
+mise exec -- bin/botkit-flow handoff clear 51999999999@s.whatsapp.net
 ```
 
-After you have helped a user, clear the flag:
+`list` shows each user's JID, name, node, when they last wrote, and a shortened
+last message, the longest wait first. `clear` exits with status 1 when that user
+is not waiting. A clear holds: a later message from the user raises the flag
+again only if that message escalates.
 
-```bash
-mise exec -- sqlite3 botkit.db \
-  "UPDATE user_state SET requires_human_agent = 0 WHERE user_id = '51999999999@s.whatsapp.net';"
-```
-
-Replace `botkit.db` with `BOTKIT_STORE_PATH` when it is set.
+The commands run beside the bot and open its existing database only, so run them
+in the bot's working directory or with its environment
+([running](running.md#operator-commands)).
+[Architecture](architecture.md#data-ownership) says which process writes the
+flag.
 
 ## Vouchers
 
