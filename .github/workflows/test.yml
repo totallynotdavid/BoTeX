@@ -15,10 +15,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install go and typst
-        uses: jdx/mise-action@v4
+      - name: Install go, typst and zig
+        uses: jdx/mise-action@v5
         with:
-          install_args: go typst
+          install_args: go typst zig
 
       - name: Build
         run: go build ./...
@@ -27,4 +27,4 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test -race ./...
+        run: mise run test

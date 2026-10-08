@@ -6,10 +6,33 @@ go = "1.27.1"
 golangci-lint = "2.14.0"
 typst = "0.15.1"
 sqlite = "3.53.4"
+zig = "0.17.0"
+bun = "1.4.2"
 
 [tasks.install]
 description = "Install Go dependencies"
 run = ["go mod download", "go mod tidy"]
+
+[tasks."install:bin"]
+description = "Install both bots into $PREFIX/bin (default /usr/local)"
+depends = ["build"]
+run = '''
+prefix="${PREFIX:-/usr/local}"
+install -d "$prefix/bin"
+install -m 0755 bin/botkit-latex bin/botkit-flow "$prefix/bin"
+'''
+
+[tasks."install:units"]
+description = "Install the systemd units, which run /usr/local/bin, into $UNIT_DIR (default /etc/systemd/system)"
+run = '''
+dir="${UNIT_DIR:-/etc/systemd/system}"
+install -d "$dir"
+install -m 0644 contrib/systemd/botkit-latex.service contrib/systemd/botkit-flow.service "$dir"
+'''
+
+[tasks."docs:format"]
+description = "Format the Markdown files"
+run = "bunx prettier --print-width 80 --prose-wrap always --write '**/*.md'"
 
 [tasks."dev:latex"]
 description = "Start the latex bot locally"
@@ -25,6 +48,8 @@ run = "go test ./internal/envfile -run TestExampleIsCurrent -update"
 
 [tasks.test]
 description = "Run all tests"
+# The race detector needs cgo. zig is the C compiler, so a clean host needs no gcc.
+env = { CGO_ENABLED = "1", CC = "zig cc" }
 run = "go test -race ./..."
 
 [tasks."build:latex"]

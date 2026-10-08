@@ -1,0 +1,17 @@
+[Unit]
+Description=botkit flow bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=botkit
+StateDirectory=botkit-flow
+WorkingDirectory=/var/lib/botkit-flow
+EnvironmentFile=/etc/botkit/flow.env
+ExecStart=/usr/local/bin/botkit-flow run
+Restart=on-failure
+# Status 78 means the WhatsApp session needs the operator: restarting cannot fix it.
+RestartPreventExitStatus=78
+
+[Install]
+WantedBy=multi-user.target

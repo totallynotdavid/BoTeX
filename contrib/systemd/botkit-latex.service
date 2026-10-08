@@ -1,0 +1,17 @@
+[Unit]
+Description=botkit latex bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=botkit
+StateDirectory=botkit-latex
+WorkingDirectory=/var/lib/botkit-latex
+EnvironmentFile=/etc/botkit/latex.env
+ExecStart=/usr/local/bin/botkit-latex run
+Restart=on-failure
+# Status 78 means the WhatsApp session needs the operator: restarting cannot fix it.
+RestartPreventExitStatus=78
+
+[Install]
+WantedBy=multi-user.target
