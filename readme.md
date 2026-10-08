@@ -31,8 +31,8 @@ mise exec -- bin/botkit-flow --repl     # type: hola
 mise exec -- bin/botkit-latex --repl    # type: !latex \frac{a}{b}
 ```
 
-The flow bot greets you with its built-in bookshop flow. The latex bot replies
-`bot> [image image/png, ...]` and reacts with ✅.
+The flow bot greets you with Luma, its built-in reading-club guide. The latex
+bot replies `bot> [image image/png, ...]` and reacts with ✅.
 
 ## Run a bot on WhatsApp
 
@@ -47,10 +47,11 @@ messages until SIGINT or SIGTERM.
 ## Features
 
 - Pair with a QR code or a pairing code.
-- Flow: keyword, exact, regex, and media conditions, with typo-tolerant
-  keywords.
-- Flow: per-user state and conversation history in SQLite, payment-voucher
-  images saved to disk, and a flag for users who need a person.
+- Flow: Luma, a named conversational reading-club guide with free-text intent,
+  typo recovery, memory, short confirmations, success reactions, and opt-in
+  rate-limited follow-ups.
+- Flow: per-user state and conversation history in SQLite, useful receipt-image
+  handling, and a flag for users who need a person.
 - Latex: Typst with the Mitex package, under limits on time, memory, file size,
   and image size.
 - Latex: ranks, owners, and registered groups decide who can run a command.

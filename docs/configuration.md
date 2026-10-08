@@ -51,11 +51,11 @@ Each image side is also capped at 4096 pixels. The cap is fixed.
 
 ## Flow bot
 
-| Variable            | Default    | Meaning                                                                   |
-| ------------------- | ---------- | ------------------------------------------------------------------------- |
-| `FLOW_FILE`         | none       | Path of the flow JSON file. Empty runs the example built into the binary. |
-| `FLOW_VOUCHER_DIR`  | `vouchers` | Directory for payment vouchers. Created when the first one arrives.       |
-| `FLOW_TYPING_DELAY` | `0s`       | How long the bot waits before each reply. `0s` replies at once.           |
+| Variable            | Default    | Meaning                                                             |
+| ------------------- | ---------- | ------------------------------------------------------------------- |
+| `FLOW_FILE`         | none       | Path of the flow JSON file. Empty runs Luma's built-in flow.        |
+| `FLOW_VOUCHER_DIR`  | `vouchers` | Directory for payment vouchers. Created when the first one arrives. |
+| `FLOW_TYPING_DELAY` | `0s`       | How long the bot waits before each reply. `0s` replies at once.     |
 
 The bot reads the flow file once, at startup. A file that cannot be read or is
-not a valid flow stops the bot instead of falling back to the example.
+not a valid flow stops the bot instead of falling back to the built-in flow.

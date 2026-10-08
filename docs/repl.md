@@ -14,6 +14,13 @@ at `bot>`. An image reply shows as `[image image/png, N bytes]`, a reaction as
 `reaction ✅`, and a message the bot ignores as `(no reply)`. Type `:quit` or
 `:exit`, or close stdin, to leave.
 
+The built-in flow introduces itself as Luma. Try a natural-language path such as
+`misteryo`, then `sí`, `recordatorios`, and `sí`; the fake transport shows a
+reaction after the enrolling `sí`, but not after club viewing or reminder
+consent. `qué elegí` demonstrates the SQLite memory. The production hourly
+scheduler exercises opt-in reminders through `flow.App.FollowUp`; ordinary REPL
+messages never create consent implicitly.
+
 The REPL reads the same environment as `run`, including `BOTKIT_STORE_PATH`, and
 writes the bot's tables to that database. It logs to stderr at
 `BOTKIT_LOG_LEVEL`.
