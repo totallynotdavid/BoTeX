@@ -51,7 +51,7 @@ func TestParseRejects(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			flow, err := fsm.Parse([]byte(test.json))
+			flow, err := parse(test.json)
 			if !errors.Is(err, test.want) {
 				t.Fatalf("Parse() = %v, %v, want an error wrapping %q", flow, err, test.want)
 			}
@@ -68,7 +68,7 @@ func TestParseRejects(t *testing.T) {
 func TestParseRejectsIncludeOfMissingGroup(t *testing.T) {
 	t.Parallel()
 
-	const nodes = `"A":{"message":{"type":"text","content":"a"},"include_transitions":"g"},"NEEDS_ASSISTANCE":` + stub
+	const nodes = `"A":{"message":{"content":"a"},"include_transitions":"g"},"NEEDS_ASSISTANCE":` + stub
 
 	for name, top := range map[string]string{
 		"no groups at all":      "",
@@ -78,7 +78,7 @@ func TestParseRejectsIncludeOfMissingGroup(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := fsm.Parse([]byte(`{"start_node":"A",` + top + `"nodes":{` + nodes + `}}`))
+			_, err := parse(`{"start_node":"A",` + top + `"nodes":{` + nodes + `}}`)
 			if !errors.Is(err, fsm.ErrInclude) || !strings.Contains(err.Error(), `node "A"`) || !strings.Contains(err.Error(), `"g"`) {
 				t.Errorf("Parse() = %v, want %v naming node \"A\" and group \"g\"", err, fsm.ErrInclude)
 			}
@@ -90,12 +90,12 @@ func TestParseReportsEveryMistake(t *testing.T) {
 	t.Parallel()
 
 	flow := `{"start_node":"X","nodes":{
-		"A":{"message":{"type":"text","content":"a"},"transitions":[
+		"A":{"message":{"content":"a"},"transitions":[
 			{"condition":{"type":"nope"},"target":"B"},
 			{"condition":{"type":"regex","regex":"("},"target":"NOWHERE"}]},
 		"NEEDS_ASSISTANCE":` + stub + `}}`
 
-	_, err := fsm.Parse([]byte(flow))
+	_, err := parse(flow)
 	for _, want := range []error{fsm.ErrStartNode, fsm.ErrCondition, fsm.ErrRegex, fsm.ErrTarget} {
 		if !errors.Is(err, want) {
 			t.Errorf("Parse() = %v, want it to include %q", err, want)
@@ -117,16 +117,16 @@ func TestParseMergesGroupsPerNode(t *testing.T) {
 		return out
 	}
 
-	flow, err := fsm.Parse([]byte(`{"start_node":"A",
+	flow, err := parse(`{"start_node":"A",
 		"transition_groups":{"g":[
 			{"condition":{"type":"exact","value":["1"]},"target":"G1"},
 			{"condition":{"type":"exact","value":["2"]},"target":"G2"},
 			{"condition":{"type":"exact","value":["3"]},"target":"G3"}]},
 		"nodes":{
-			"A":{"message":{"type":"text","content":"a"},"include_transitions":"g","transitions":[{"condition":{"type":"any_text"},"target":"OWN_A"}]},
-			"B":{"message":{"type":"text","content":"b"},"include_transitions":"g","transitions":[{"condition":{"type":"any_text"},"target":"OWN_B"}]},
-			"C":{"message":{"type":"text","content":"c"},"include_transitions":"g"},
-			"G1":` + stub + `,"G2":` + stub + `,"G3":` + stub + `,"OWN_A":` + stub + `,"OWN_B":` + stub + `,"NEEDS_ASSISTANCE":` + stub + `}}`))
+			"A":{"message":{"content":"a"},"include_transitions":"g","transitions":[{"condition":{"type":"any_text"},"target":"OWN_A"}]},
+			"B":{"message":{"content":"b"},"include_transitions":"g","transitions":[{"condition":{"type":"any_text"},"target":"OWN_B"}]},
+			"C":{"message":{"content":"c"},"include_transitions":"g"},
+			"G1":` + stub + `,"G2":` + stub + `,"G3":` + stub + `,"OWN_A":` + stub + `,"OWN_B":` + stub + `,"NEEDS_ASSISTANCE":` + stub + `}}`)
 	if err != nil {
 		t.Fatalf("Parse() = %v", err)
 	}
@@ -145,7 +145,7 @@ func TestParseMergesGroupsPerNode(t *testing.T) {
 func TestEngagingFlowParses(t *testing.T) {
 	t.Parallel()
 
-	flow, err := fsm.EngagingExample()
+	flow, err := fsm.EngagingExample(anyAction)
 	if err != nil {
 		t.Fatalf("EngagingExample() = %v", err)
 	}
@@ -187,7 +187,7 @@ func TestLoad(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			flow, err := fsm.Load(test.path)
+			flow, err := fsm.Load(test.path, anyAction)
 			if !errors.Is(err, test.wantErr) {
 				t.Fatalf("Load(%q) = %v, want %v", test.path, err, test.wantErr)
 			}

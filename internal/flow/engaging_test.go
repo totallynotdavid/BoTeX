@@ -70,7 +70,7 @@ func (t cancelAfterSendTransport) SendText(ctx context.Context, recipient bot.JI
 func engagingFlow(t *testing.T) *fsm.Flow {
 	t.Helper()
 
-	definition, err := fsm.EngagingExample()
+	definition, err := fsm.EngagingExample(knownAction)
 	if err != nil {
 		t.Fatal(err)
 	}

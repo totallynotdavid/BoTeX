@@ -30,8 +30,8 @@ const (
 	greeting = "¡Bienvenidx! Es un placer ayudarte a empezar."
 
 	typoFlow = `{"start_node":"A","nodes":{` +
-		`"A":{"message":{"type":"text","content":"hi"},"action":"launch_rocket"},` +
-		`"NEEDS_ASSISTANCE":{"message":{"type":"text","content":"a person will help"}}}}`
+		`"A":{"message":{"content":"hi"},"action":"launch_rocket"},` +
+		`"NEEDS_ASSISTANCE":{"message":{"content":"a person will help"}}}}`
 )
 
 func environment(t *testing.T, vars map[string]string) *config.Env {

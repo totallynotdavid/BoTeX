@@ -10,13 +10,13 @@ import (
 )
 
 // stub is a node with no transitions.
-const stub = `{"message":{"type":"text","content":"x"}}`
+const stub = `{"message":{"content":"x"}}`
 
 // flowJSON is a flow whose start node A holds the given transitions, with the
 // nodes every flow needs. top is JSON members for the flow's top level.
 func flowJSON(top, transitions string) string {
 	return fmt.Sprintf(`{"start_node":"A",%s"nodes":{
-		"A":{"message":{"type":"text","content":"a"},"transitions":[%s]},
+		"A":{"message":{"content":"a"},"transitions":[%s]},
 		"B":%[3]s,"NEEDS_ASSISTANCE":%[3]s}}`, top, transitions, stub)
 }
 
@@ -108,7 +108,7 @@ func TestConditions(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			flow, err := fsm.Parse([]byte(flowJSON("", condition(test.cond))))
+			flow, err := parse(flowJSON("", condition(test.cond)))
 			if err != nil {
 				t.Fatalf("Parse() = %v", err)
 			}
@@ -129,12 +129,12 @@ func TestRoutingOrder(t *testing.T) {
 		{"condition":{"type":"media_type","value":["image"]},"target":"IMAGE"}`
 	nodes := `"TEXT":` + stub + `,"TEXT_FIRST":` + stub + `,"IMAGE":` + stub + `,"ANY":` + stub + `,"GLOBAL":` + stub
 
-	flow, err := fsm.Parse([]byte(`{"start_node":"A",
+	flow, err := parse(`{"start_node":"A",
 		"global_transitions":[{"condition":{"type":"keyword","value":["both","global"]},"target":"GLOBAL","action":"global_action"}],
 		"nodes":{
-			"A":{"message":{"type":"text","content":"a"},"transitions":[` + transitions + `]},
-			"M":{"message":{"type":"text","content":"m"},"transitions":[{"condition":{"type":"media"},"target":"ANY"}]},
-			` + nodes + `,"NEEDS_ASSISTANCE":` + stub + `}}`))
+			"A":{"message":{"content":"a"},"transitions":[` + transitions + `]},
+			"M":{"message":{"content":"m"},"transitions":[{"condition":{"type":"media"},"target":"ANY"}]},
+			` + nodes + `,"NEEDS_ASSISTANCE":` + stub + `}}`)
 	if err != nil {
 		t.Fatalf("Parse() = %v", err)
 	}

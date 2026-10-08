@@ -32,7 +32,6 @@ func TestApplyStateActions(t *testing.T) {
 		want   flow.State
 	}{
 		{"empty action", "", flow.State{UserName: "Ana"}, "N", flow.State{UserName: "Ana"}},
-		{"a new lead changes no state", "create_new_lead", flow.State{UserName: "Ana"}, "N", flow.State{UserName: "Ana"}},
 		{"beginner interest", "update_lead_interest_beginner", flow.State{}, "N", flow.State{CourseInterest: "beginner"}},
 		{"advanced interest replaces beginner", "update_lead_interest_advanced", flow.State{CourseInterest: "beginner"}, "N", flow.State{CourseInterest: "advanced"}},
 		{"consulted price", "update_lead_consulted_price", flow.State{}, "N", flow.State{ConsultedPrice: true}},
@@ -67,8 +66,8 @@ func TestApplyUnknownAction(t *testing.T) {
 	state := &flow.State{UserName: "Ana"}
 
 	err := flow.NewActions(t.TempDir()).Apply(t.Context(), fake.New(), "launch_rocket", state, bot.Message{}, "N")
-	if !errors.Is(err, flow.ErrUnknownAction) || !strings.Contains(err.Error(), "launch_rocket") {
-		t.Errorf("Apply() error = %v, want ErrUnknownAction naming the action", err)
+	if !errors.Is(err, fsm.ErrAction) || !strings.Contains(err.Error(), "launch_rocket") {
+		t.Errorf("Apply() error = %v, want ErrAction naming the action", err)
 	}
 
 	if *state != (flow.State{UserName: "Ana"}) {
@@ -366,12 +365,12 @@ func TestApplySavePaymentVoucherFileFailure(t *testing.T) {
 	}
 }
 
-func TestCheckAgreesWithApply(t *testing.T) {
+func TestKnowsAgreesWithApply(t *testing.T) {
 	t.Parallel()
 
 	actions := []string{
-		"launch_rocket",
-		"create_new_lead", "clear_user_name", "save_user_name", "set_selected_course",
+		"launch_rocket", "create_new_lead",
+		"clear_user_name", "save_user_name", "set_selected_course",
 		"save_payment_voucher", "update_lead_interest_beginner", "update_lead_interest_advanced",
 		"update_lead_consulted_price", "escalate_to_human_agent",
 	}
@@ -380,17 +379,16 @@ func TestCheckAgreesWithApply(t *testing.T) {
 		t.Run(action, func(t *testing.T) {
 			t.Parallel()
 
-			applied := flow.NewActions(t.TempDir()).Apply(t.Context(), fake.New(), action, &flow.State{}, photo("x"), "N")
-			applyKnows := !errors.Is(applied, flow.ErrUnknownAction)
+			actions := flow.NewActions(t.TempDir())
 
-			parsed, err := fsm.Parse([]byte(`{"start_node":"A","nodes":{"A":` + node(action) + `,"NEEDS_ASSISTANCE":` + node("") + `}}`))
-			if err != nil {
-				t.Fatal(err)
-			}
+			applied := actions.Apply(t.Context(), fake.New(), action, &flow.State{}, photo("x"), "N")
+			applyKnows := !errors.Is(applied, fsm.ErrAction)
 
-			checkKnows := flow.NewActions(t.TempDir()).Check(parsed) == nil
-			if applyKnows != checkKnows || applyKnows != (action != "launch_rocket") {
-				t.Errorf("Apply knows %q: %t, Check knows it: %t", action, applyKnows, checkKnows)
+			_, err := fsm.Parse([]byte(`{"start_node":"A","nodes":{"A":`+node(action)+`,"NEEDS_ASSISTANCE":`+node("")+`}}`), actions.Knows)
+			loadKnows := !errors.Is(err, fsm.ErrAction)
+
+			if applyKnows != loadKnows || applyKnows != (action != "launch_rocket" && action != "create_new_lead") {
+				t.Errorf("Apply knows %q: %t, the loader accepts it: %t", action, applyKnows, loadKnows)
 			}
 		})
 	}
@@ -398,24 +396,19 @@ func TestCheckAgreesWithApply(t *testing.T) {
 
 // node is the JSON of a node that runs action on entering.
 func node(action string) string {
-	return `{"message":{"type":"text","content":"x"},"action":"` + action + `"}`
+	return `{"message":{"content":"x"},"action":"` + action + `"}`
 }
 
-func TestCheckAcceptsTheEngagingFlow(t *testing.T) {
+func TestEngagingFlowUsesOnlyKnownActions(t *testing.T) {
 	t.Parallel()
 
-	engaging, err := fsm.EngagingExample()
+	_, err := fsm.EngagingExample(flow.NewActions(t.TempDir()).Knows)
 	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = flow.NewActions(t.TempDir()).Check(engaging)
-	if err != nil {
-		t.Errorf("Check(engaging) = %v, want none", err)
+		t.Errorf("EngagingExample() = %v, want none", err)
 	}
 }
 
-func TestCheckNamesEveryUnknownAction(t *testing.T) {
+func TestLoadNamesEveryUnknownAction(t *testing.T) {
 	t.Parallel()
 
 	const data = `{
@@ -429,24 +422,19 @@ func TestCheckNamesEveryUnknownAction(t *testing.T) {
 		},
 		"nodes": {
 			"A": {
-				"message": {"type": "text", "content": "x"},
+				"message": {"content": "x"},
 				"action": "node_typo",
 				"include_transitions": "menu",
 				"transitions": [{"condition": {"type": "any_text"}, "target": "B", "action": "transition_typo"}]
 			},
-			"B": {"message": {"type": "text", "content": "x"}, "include_transitions": "menu"},
-			"NEEDS_ASSISTANCE": {"message": {"type": "text", "content": "x"}}
+			"B": {"message": {"content": "x"}, "include_transitions": "menu"},
+			"NEEDS_ASSISTANCE": {"message": {"content": "x"}}
 		}
 	}`
 
-	parsed, err := fsm.Parse([]byte(data))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = flow.NewActions(t.TempDir()).Check(parsed)
-	if !errors.Is(err, flow.ErrUnknownAction) {
-		t.Fatalf("Check() = %v, want ErrUnknownAction", err)
+	_, err := fsm.Parse([]byte(data), flow.NewActions(t.TempDir()).Knows)
+	if !errors.Is(err, fsm.ErrAction) {
+		t.Fatalf("Parse() = %v, want ErrAction", err)
 	}
 
 	for _, want := range []string{

@@ -49,7 +49,7 @@ func runRoutes(t *testing.T, flow *fsm.Flow, routes []route) {
 func TestEngagingFlowRoutesGlobalQuestionsBeforeLocalKeywords(t *testing.T) {
 	t.Parallel()
 
-	flow, err := fsm.EngagingExample()
+	flow, err := fsm.EngagingExample(anyAction)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestEngagingFlowRoutesGlobalQuestionsBeforeLocalKeywords(t *testing.T) {
 func TestEngagingFlowHasRecoveryForFollowUpStates(t *testing.T) {
 	t.Parallel()
 
-	flow, err := fsm.EngagingExample()
+	flow, err := fsm.EngagingExample(anyAction)
 	if err != nil {
 		t.Fatal(err)
 	}

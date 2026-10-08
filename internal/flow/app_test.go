@@ -85,7 +85,7 @@ func start(t *testing.T, opts ...func(*settings)) *rig {
 	}
 	if set.flow == nil {
 		var err error
-		set.flow, err = fsm.EngagingExample()
+		set.flow, err = fsm.EngagingExample(knownAction)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -106,10 +106,7 @@ func start(t *testing.T, opts ...func(*settings)) *rig {
 		stopped:    make(chan struct{}),
 	}
 
-	app, err := flow.New(set.flow, store, flow.NewActions(env.voucherDir), flow.Config{TypingDelay: set.delay}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	app := flow.New(set.flow, store, flow.NewActions(env.voucherDir), flow.Config{TypingDelay: set.delay}, nil)
 	env.app = app
 	runner := bot.New(env.client, spy{app: app, done: env.done}, nil, bot.Options{})
 	ctx, cancel := context.WithCancel(t.Context())
@@ -241,14 +238,16 @@ func (r *rig) text(node, greeting string) string {
 
 func tiny(t *testing.T, nodes string) *fsm.Flow {
 	t.Helper()
-	data := `{"start_node":"START","nodes":{` + nodes + `,"NEEDS_ASSISTANCE":{"message":{"type":"text","content":"a person will help"}}}}`
-	parsed, err := fsm.Parse([]byte(data))
+	data := `{"start_node":"START","nodes":{` + nodes + `,"NEEDS_ASSISTANCE":{"message":{"content":"a person will help"}}}}`
+	parsed, err := fsm.Parse([]byte(data), knownAction)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	return parsed
 }
+
+func knownAction(action string) bool { return flow.NewActions("").Knows(action) }
 
 func requireEqual[T comparable](t *testing.T, what string, got, want T) {
 	t.Helper()

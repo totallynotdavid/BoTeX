@@ -32,7 +32,9 @@ type Route struct {
 	// or empty. The action of the node being entered is not included: the caller
 	// runs it, so it also runs when a global transition or a fallback leads there.
 	Action string
-	Via    Via
+	// React is the reaction of the transition taken, or empty.
+	React string
+	Via   Via
 }
 
 // DetermineNext routes a message from the current node. media is empty for a
@@ -53,11 +55,11 @@ func (f *Flow) DetermineNext(current, text string, media bot.MediaKind) Route {
 	input := strings.ToLower(strings.TrimSpace(text))
 
 	if hit := f.matchGlobal(input, media, node.IgnoreGlobalTransitions); hit != nil {
-		return Route{Node: hit.Target, Action: hit.Action, Via: ViaGlobal}
+		return Route{Node: hit.Target, Action: hit.Action, React: hit.React, Via: ViaGlobal}
 	}
 
 	if hit := matchNode(node.Transitions, input, media); hit != nil {
-		return Route{Node: hit.Target, Action: hit.Action, Via: ViaNode}
+		return Route{Node: hit.Target, Action: hit.Action, React: hit.React, Via: ViaNode}
 	}
 
 	// A file where an image was expected, not just an unmatched message.

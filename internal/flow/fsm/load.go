@@ -28,6 +28,8 @@ var (
 	ErrRegex      = errors.New("regex does not compile")
 	ErrValues     = errors.New("invalid condition values")
 	ErrMediaKind  = errors.New("unknown media kind")
+	ErrAction     = errors.New("unknown action")
+	ErrReact      = errors.New("invalid react")
 	errNoValues   = fmt.Errorf("%w: needs at least one", ErrValues)
 	errBlankValue = fmt.Errorf("%w: a value is blank", ErrValues)
 	errEmptyRegex = fmt.Errorf("%w: needs a regex", ErrValues)
@@ -36,24 +38,29 @@ var (
 //go:embed engaging.json
 var engaging []byte
 
-// EngagingExample returns Luma's built-in conversational reading-club flow.
-func EngagingExample() (*Flow, error) {
-	return Parse(engaging)
+// EngagingExample returns Luma's built-in conversational reading-club flow,
+// checked like Parse does.
+func EngagingExample(known func(action string) bool) (*Flow, error) {
+	return Parse(engaging, known)
 }
 
-// Load reads and validates the flow file at path.
-func Load(path string) (*Flow, error) {
+// Load reads and validates the flow file at path, as Parse does.
+func Load(path string, known func(action string) bool) (*Flow, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // the operator chooses where the flow lives.
 	if err != nil {
 		return nil, fmt.Errorf("read flow file: %w", err)
 	}
 
-	return Parse(data)
+	return Parse(data, known)
 }
 
 // Parse decodes a flow, merges the transition groups nodes include, and
-// validates every mistake the router would otherwise meet at runtime.
-func Parse(data []byte) (*Flow, error) {
+// validates every mistake the router would otherwise meet at runtime. known
+// says whether an action name is one the runtime can run, so a mistyped action
+// is reported with the other mistakes when the flow loads, not when a user
+// first reaches it. The mistakes of a document that decodes are all reported
+// together. A document that does not decode reports the first problem alone.
+func Parse(data []byte, known func(action string) bool) (*Flow, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 
@@ -69,7 +76,7 @@ func Parse(data []byte) (*Flow, error) {
 		return nil, fmt.Errorf("%w: data after the flow", ErrParse)
 	}
 
-	err = flow.prepare()
+	err = flow.prepare(known)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +86,7 @@ func Parse(data []byte) (*Flow, error) {
 
 // prepare validates the flow, compiling its regexes, then merges the included
 // groups into the nodes.
-func (f *Flow) prepare() error {
+func (f *Flow) prepare(known func(action string) bool) error {
 	var errs []error
 
 	if _, ok := f.Nodes[f.StartNode]; !ok {
@@ -90,18 +97,19 @@ func (f *Flow) prepare() error {
 		errs = append(errs, fmt.Errorf("%w: no node %q", ErrHelpNode, HelpNode))
 	}
 
-	errs = append(errs, f.checkTransitions("global_transitions", f.GlobalTransitions)...)
+	errs = append(errs, f.checkTransitions("global_transitions", f.GlobalTransitions, known)...)
 
 	for _, name := range slices.Sorted(maps.Keys(f.TransitionGroups)) {
-		errs = append(errs, f.checkTransitions(fmt.Sprintf("group %q", name), f.TransitionGroups[name])...)
+		errs = append(errs, f.checkTransitions(fmt.Sprintf("group %q", name), f.TransitionGroups[name], known)...)
 	}
 
-	for _, id := range slices.Sorted(maps.Keys(f.Nodes)) {
-		node := f.Nodes[id]
-		errs = append(errs, f.checkTransitions(fmt.Sprintf("node %q transitions", id), node.Transitions)...)
+	for _, name := range slices.Sorted(maps.Keys(f.Nodes)) {
+		node := f.Nodes[name]
+		errs = append(errs, f.checkTransitions(fmt.Sprintf("node %q transitions", name), node.Transitions, known)...)
+		errs = append(errs, checkEffects(fmt.Sprintf("node %q", name), node.Action, node.React, known)...)
 
 		if _, ok := f.TransitionGroups[node.IncludeTransitions]; node.IncludeTransitions != "" && !ok {
-			errs = append(errs, fmt.Errorf("node %q: %w: %q", id, ErrInclude, node.IncludeTransitions))
+			errs = append(errs, fmt.Errorf("node %q: %w: %q", name, ErrInclude, node.IncludeTransitions))
 		}
 	}
 
@@ -124,7 +132,7 @@ func (f *Flow) prepare() error {
 
 // checkTransitions validates each transition of one list, named by where in
 // the flow it sits, and compiles its regex in place.
-func (f *Flow) checkTransitions(where string, transitions []Transition) []error {
+func (f *Flow) checkTransitions(where string, transitions []Transition, known func(action string) bool) []error {
 	var errs []error
 
 	for idx := range transitions {
@@ -139,6 +147,25 @@ func (f *Flow) checkTransitions(where string, transitions []Transition) []error 
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", loc, err))
 		}
+
+		errs = append(errs, checkEffects(loc, transitions[idx].Action, transitions[idx].React, known)...)
+	}
+
+	return errs
+}
+
+// checkEffects validates what a transition or node does besides moving the
+// user: the action must be one known accepts, and the reaction exactly one
+// emoji.
+func checkEffects(loc, action, react string, known func(action string) bool) []error {
+	var errs []error
+
+	if action != "" && !known(action) {
+		errs = append(errs, fmt.Errorf("%s: %w: %q", loc, ErrAction, action))
+	}
+
+	if react != "" && !isEmoji(react) {
+		errs = append(errs, fmt.Errorf("%s: %w: %q is not one emoji", loc, ErrReact, react))
 	}
 
 	return errs

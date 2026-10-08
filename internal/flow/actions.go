@@ -20,11 +20,9 @@ import (
 // are private to the bot's user: see writeVoucher.
 const voucherDirMode os.FileMode = 0o755
 
-// The errors actions wrap.
-var (
-	ErrUnknownAction = errors.New("unknown action")
-	ErrInvalidName   = errors.New("invalid name")
-)
+// ErrInvalidName is wrapped by the error of an action given text that is not a
+// name.
+var ErrInvalidName = errors.New("invalid name")
 
 // voucherUnsafe matches what a voucher's file name may not carry from a
 // profile name.
@@ -47,7 +45,7 @@ type handler func(ctx context.Context, media Downloader, state *State, msg bot.M
 // Actions applies the actions of a flow to a user's State.
 type Actions struct {
 	voucherDir string
-	// handlers is the whole vocabulary a flow file may use. Apply and Check both
+	// handlers is the whole vocabulary a flow file may use. Apply and Knows both
 	// read it, so what one runs is what the other accepts.
 	handlers map[string]handler
 }
@@ -58,8 +56,6 @@ func NewActions(voucherDir string) *Actions {
 	actions := &Actions{voucherDir: voucherDir}
 
 	actions.handlers = map[string]handler{
-		// A new lead is a fact for the log. The state holds nothing to record.
-		"create_new_lead":               stateOnly(func(*State, string) {}),
 		"clear_user_name":               stateOnly(func(state *State, _ string) { state.UserName = "" }),
 		"set_selected_course":           stateOnly(func(state *State, origin string) { state.SelectedCourseID = origin }),
 		"remember_choice":               stateOnly(func(state *State, origin string) { state.LastChoice = origin }),
@@ -89,19 +85,11 @@ func stateOnly(change func(state *State, origin string)) handler {
 	}
 }
 
-// Check reports every action flow names that Apply does not know, each with
-// where it sits, so a mistyped action fails when the flow loads and not when a
-// user first reaches it.
-func (a *Actions) Check(flow *fsm.Flow) error {
-	var errs []error
-
-	for _, use := range flow.Actions() {
-		if a.handlers[use.Action] == nil {
-			errs = append(errs, fmt.Errorf("%s: %w: %q", use.Where, ErrUnknownAction, use.Action))
-		}
-	}
-
-	return errors.Join(errs...)
+// Knows reports whether Apply can run action. Pass it to the flow loader, so a
+// mistyped action fails when the flow loads and not when a user first reaches
+// it.
+func (a *Actions) Knows(action string) bool {
+	return a.handlers[action] != nil
 }
 
 // Apply runs action on state. msg is the message that took the user along the
@@ -119,7 +107,7 @@ func (a *Actions) apply(ctx context.Context, media Downloader, action string, st
 
 	run := a.handlers[action]
 	if run == nil {
-		return fmt.Errorf("%w: %q", ErrUnknownAction, action)
+		return fmt.Errorf("%w: %q", fsm.ErrAction, action)
 	}
 
 	return run(ctx, media, state, msg, origin)

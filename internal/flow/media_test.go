@@ -14,12 +14,12 @@ const (
 	wantsAnyNode     = "WANTS_ANY"
 
 	askingForFiles = `
-		"START":{"message":{"type":"text","content":"start"}},
-		"WANTS_VIDEO":{"message":{"type":"text","content":"send a video"},
+		"START":{"message":{"content":"start"}},
+		"WANTS_VIDEO":{"message":{"content":"send a video"},
 			"transitions":[{"condition":{"type":"media_type","value":["video"]},"target":"DONE"}]},
-		"WANTS_ANY":{"message":{"type":"text","content":"send anything"},
+		"WANTS_ANY":{"message":{"content":"send anything"},
 			"transitions":[{"condition":{"type":"media"},"target":"DONE"}]},
-		"DONE":{"message":{"type":"text","content":"thanks"}}`
+		"DONE":{"message":{"content":"thanks"}}`
 )
 
 func TestNodeTakesTheMediaItAsksFor(t *testing.T) {
@@ -60,17 +60,17 @@ func TestWrongMediaReplyNamesEveryKindTheNodeAsksFor(t *testing.T) {
 	t.Parallel()
 
 	nodes := `
-		"START":{"message":{"type":"text","content":"start"}},
-		"WANTS_DOCUMENT":{"message":{"type":"text","content":"send a file"},
+		"START":{"message":{"content":"start"}},
+		"WANTS_DOCUMENT":{"message":{"content":"send a file"},
 			"transitions":[{"condition":{"type":"media_type","value":["document"]},"target":"START"}]},
-		"WANTS_EITHER":{"message":{"type":"text","content":"send a video or a file"},
+		"WANTS_EITHER":{"message":{"content":"send a video or a file"},
 			"transitions":[{"condition":{"type":"media_type","value":["video","document"]},"target":"START"}]},
-		"WANTS_TWICE":{"message":{"type":"text","content":"send a video"},
+		"WANTS_TWICE":{"message":{"content":"send a video"},
 			"transitions":[{"condition":{"type":"media_type","value":["video"]},"target":"START"},
 				{"condition":{"type":"media_type","value":["video","audio"]},"target":"START"}]},
-		"WANTS_AUDIO":{"message":{"type":"text","content":"send a voice note"},
+		"WANTS_AUDIO":{"message":{"content":"send a voice note"},
 			"transitions":[{"condition":{"type":"media_type","value":["audio"]},"target":"START"}]},
-		"WANTS_STICKER":{"message":{"type":"text","content":"send a sticker"},
+		"WANTS_STICKER":{"message":{"content":"send a sticker"},
 			"transitions":[{"condition":{"type":"media_type","value":["sticker"]},"target":"START"}]}`
 
 	tests := map[string]string{
@@ -160,9 +160,9 @@ func TestCourseNameFallsBackWhenTheSelectedNodeHasNoTitle(t *testing.T) {
 	t.Parallel()
 
 	nodes := `
-		"START":{"message":{"type":"text","content":"start"}},
-		"UNTITLED":{"message":{"type":"text","content":"an untitled node"}},
-		"CONFIRM":{"message":{"type":"text","content":"Enroll in {{course_name}}?"},
+		"START":{"message":{"content":"start"}},
+		"UNTITLED":{"message":{"content":"an untitled node"}},
+		"CONFIRM":{"message":{"content":"Enroll in {{course_name}}?"},
 			"transitions":[{"condition":{"type":"exact","value":["yes"]},"target":"START"}]}`
 
 	for _, selected := range []string{"UNTITLED", "REMOVED_NODE"} {
@@ -189,9 +189,9 @@ func TestNodeThatIncludesAGroupIsNotTheEndOfTheConversation(t *testing.T) {
 	t.Parallel()
 
 	parsed, err := fsm.Parse([]byte(`{"start_node":"START","transition_groups":{"shared":[]},"nodes":{
-		"START":{"message":{"type":"text","content":"start"}},
-		"HUB":{"message":{"type":"text","content":"pick one"},"include_transitions":"shared"},
-		"NEEDS_ASSISTANCE":{"message":{"type":"text","content":"a person will help"}}}}`))
+		"START":{"message":{"content":"start"}},
+		"HUB":{"message":{"content":"pick one"},"include_transitions":"shared"},
+		"NEEDS_ASSISTANCE":{"message":{"content":"a person will help"}}}}`), knownAction)
 	if err != nil {
 		t.Fatal(err)
 	}

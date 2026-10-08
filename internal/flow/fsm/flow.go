@@ -3,12 +3,7 @@
 // next and which action the transition carries.
 package fsm
 
-import (
-	"fmt"
-	"maps"
-	"regexp"
-	"slices"
-)
+import "regexp"
 
 // HelpNode is the node a user is sent to when they explicitly ask for a
 // person. Global help transitions stay active on nodes that ignore the others.
@@ -48,7 +43,6 @@ const (
 
 // MessageContent is what the bot says on entering a node.
 type MessageContent struct {
-	Type    string `json:"type"`
 	Content string `json:"content"`
 }
 
@@ -62,21 +56,25 @@ type Condition struct {
 }
 
 // Transition moves the user to Target when its Condition matches. Action names
-// what the runtime does on the way, and may be empty.
+// what the runtime does on the way, and may be empty. React is an emoji the bot
+// reacts to the message with once the turn has succeeded, and may be empty.
 type Transition struct {
 	Condition Condition `json:"condition"`
 	Target    string    `json:"target"`
 	Action    string    `json:"action,omitempty"`
+	React     string    `json:"react,omitempty"`
 }
 
 // Node is one state of the conversation. Its Action runs when the user enters
-// it, whichever transition led there.
+// it, whichever transition led there. Its React is the reaction of a turn that
+// enters it, when the transition took none.
 type Node struct {
 	Title                   string         `json:"title,omitempty"`
 	Message                 MessageContent `json:"message"`
 	Transitions             []Transition   `json:"transitions,omitempty"`
 	IncludeTransitions      string         `json:"include_transitions,omitempty"`
 	Action                  string         `json:"action,omitempty"`
+	React                   string         `json:"react,omitempty"`
 	IgnoreGlobalTransitions bool           `json:"ignore_global_transitions,omitempty"`
 	FallbackMessage         string         `json:"fallback_message,omitempty"`
 }
@@ -91,49 +89,4 @@ type Flow struct {
 	Nodes             map[string]Node         `json:"nodes"`
 	GlobalTransitions []Transition            `json:"global_transitions,omitempty"`
 	TransitionGroups  map[string][]Transition `json:"transition_groups,omitempty"`
-}
-
-// ActionUse is one place where a flow names an action.
-type ActionUse struct {
-	// Where locates the action the way Parse words its errors, for example
-	// `node "PAY"` or `global_transitions[2]`.
-	Where  string
-	Action string
-}
-
-// Actions lists every action the flow names, so a caller can check that it
-// knows them all. The list is in a fixed order and skips empty actions.
-func (f *Flow) Actions() []ActionUse {
-	var uses []ActionUse
-
-	add := func(where, action string) {
-		if action != "" {
-			uses = append(uses, ActionUse{Where: where, Action: action})
-		}
-	}
-
-	for idx, tr := range f.GlobalTransitions {
-		add(fmt.Sprintf("global_transitions[%d]", idx), tr.Action)
-	}
-
-	for _, name := range slices.Sorted(maps.Keys(f.TransitionGroups)) {
-		for idx, tr := range f.TransitionGroups[name] {
-			add(fmt.Sprintf("group %q[%d]", name, idx), tr.Action)
-		}
-	}
-
-	for _, nodeID := range slices.Sorted(maps.Keys(f.Nodes)) {
-		node := f.Nodes[nodeID]
-		add(fmt.Sprintf("node %q", nodeID), node.Action)
-
-		// A node's transitions start with those of the group it includes, which
-		// the loop over the groups has listed already. The rest are numbered as
-		// in the flow file, where the group is not part of the node's list.
-		own := node.Transitions[min(len(f.TransitionGroups[node.IncludeTransitions]), len(node.Transitions)):]
-		for idx, tr := range own {
-			add(fmt.Sprintf("node %q transitions[%d]", nodeID, idx), tr.Action)
-		}
-	}
-
-	return uses
 }

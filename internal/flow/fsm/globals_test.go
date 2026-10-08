@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/totallynotdavid/botkit/internal/bot"
-	"github.com/totallynotdavid/botkit/internal/flow/fsm"
 )
 
 // This focused flow has one global list and a node that ignores it, so the
@@ -17,7 +16,7 @@ func TestGlobalsAndMedia(t *testing.T) {
 		wantsVideo = `{"condition":{"type":"media_type","value":["video"]},"target":"DONE"}`
 	)
 
-	flow, err := fsm.Parse([]byte(`{"start_node":"OPEN",
+	flow, err := parse(`{"start_node":"OPEN",
 		"global_transitions":[
 			{"condition":{"type":"keyword","value":["both"]},"target":"GLOBAL","action":"first_global"},
 			{"condition":{"type":"keyword","value":["both"]},"target":"LOCAL","action":"second_global"},
@@ -25,10 +24,10 @@ func TestGlobalsAndMedia(t *testing.T) {
 			{"condition":{"type":"keyword","value":["local"]},"target":"GLOBAL"},
 			{"condition":{"type":"keyword","value":["menu"]},"target":"DONE"}],
 		"nodes":{
-			"OPEN":{"message":{"type":"text","content":"o"},"transitions":[` + toLocal + `]},
-			"CLOSED":{"message":{"type":"text","content":"c"},"ignore_global_transitions":true,"transitions":[` + toLocal + `]},
-			"WANTS_VIDEO":{"message":{"type":"text","content":"v"},"transitions":[` + wantsVideo + `]},
-			"LOCAL":` + stub + `,"GLOBAL":` + stub + `,"DONE":` + stub + `,"NEEDS_ASSISTANCE":` + stub + `}}`))
+			"OPEN":{"message":{"content":"o"},"transitions":[` + toLocal + `]},
+			"CLOSED":{"message":{"content":"c"},"ignore_global_transitions":true,"transitions":[` + toLocal + `]},
+			"WANTS_VIDEO":{"message":{"content":"v"},"transitions":[` + wantsVideo + `]},
+			"LOCAL":` + stub + `,"GLOBAL":` + stub + `,"DONE":` + stub + `,"NEEDS_ASSISTANCE":` + stub + `}}`)
 	if err != nil {
 		t.Fatalf("Parse() = %v", err)
 	}

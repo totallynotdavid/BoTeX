@@ -1,6 +1,7 @@
 package flow
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -72,19 +73,14 @@ type App struct {
 	log     *slog.Logger
 }
 
-// New returns an App for flow. It fails when flow names an action that actions
-// does not know, so a mistyped flow stops the bot at startup.
-func New(flow *fsm.Flow, store *Store, actions *Actions, cfg Config, log *slog.Logger) (*App, error) {
-	err := actions.Check(flow)
-	if err != nil {
-		return nil, fmt.Errorf("check flow: %w", err)
-	}
-
+// New returns an App for flow, which must have been loaded with actions.Knows
+// so that every action it names can run.
+func New(flow *fsm.Flow, store *Store, actions *Actions, cfg Config, log *slog.Logger) *App {
 	if log == nil {
 		log = slog.Default()
 	}
 
-	return &App{flow: flow, store: store, actions: actions, delay: cfg.TypingDelay, log: log}, nil
+	return &App{flow: flow, store: store, actions: actions, delay: cfg.TypingDelay, log: log}
 }
 
 // Handle answers one message. The turn is stored before any reply is sent, so
@@ -113,8 +109,8 @@ func (a *App) Handle(ctx context.Context, msg bot.Message, chat *bot.Chat) error
 	run.log.DebugContext(ctx, "message handled", "node", run.state.CurrentNode, "replies", len(run.replies))
 
 	sendErr := a.send(ctx, chat, run.replies)
-	if sendErr == nil && run.success {
-		sendErr = chat.React(ctx, "✅")
+	if sendErr == nil && run.react != "" {
+		sendErr = chat.React(ctx, run.react)
 	}
 
 	return errors.Join(sendErr, run.failure)
@@ -229,9 +225,10 @@ type turn struct {
 	// failure is what the actions of the turn returned, apart from a name that
 	// was not a name.
 	failure error
-	// success controls the post-save reaction. Fallbacks and failed actions
-	// never set it.
-	success bool
+	// react is the emoji to react with once the turn is stored and its replies
+	// are sent. Only a transition or node the flow gave a react field sets it,
+	// so fallbacks and failed actions never react.
+	react string
 }
 
 // play runs the message against state, which it leaves as the turn ends.
@@ -300,7 +297,7 @@ func (t *turn) restart(ctx context.Context) error {
 // unrecognised message is repaired in place.
 func (t *turn) respond(ctx context.Context, from string, route fsm.Route) {
 	if route.Via != fsm.ViaFallback {
-		t.advance(ctx, from, route.Node, route.Action)
+		t.advance(ctx, from, route)
 
 		return
 	}
@@ -316,13 +313,15 @@ func (t *turn) respond(ctx context.Context, from string, route fsm.Route) {
 	t.fallback(ctx, from)
 }
 
-// advance moves the user from node from to node target, running the action of
+// advance moves the user from node from along route, running the action of
 // the transition and then the action of the node entered. When an action fails
 // the user stays in the guided step and gets a retry prompt.
-func (t *turn) advance(ctx context.Context, from, target, action string) {
-	err := t.apply(ctx, action, from)
+func (t *turn) advance(ctx context.Context, from string, route fsm.Route) {
+	target := route.Node
+
+	err := t.apply(ctx, route.Action, from)
 	if err == nil {
-		err = t.enter(ctx, target, action)
+		err = t.enter(ctx, target, route.Action)
 	}
 
 	if err != nil {
@@ -332,17 +331,7 @@ func (t *turn) advance(ctx context.Context, from, target, action string) {
 	}
 
 	t.finish(target, t.text(ctx, target))
-	t.success = actionIsSuccessful(action) || actionIsSuccessful(t.app.flow.Nodes[target].Action)
-}
-
-func actionIsSuccessful(action string) bool {
-	switch action {
-	case "create_new_lead", "save_user_name", "set_selected_course",
-		"update_lead_interest_beginner", "update_lead_interest_advanced", "save_payment_voucher":
-		return true
-	default:
-		return false
-	}
+	t.react = cmp.Or(route.React, t.app.flow.Nodes[target].React)
 }
 
 // fail answers an action that failed at node from. A name that was not a name
