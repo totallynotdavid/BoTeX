@@ -1,14 +1,17 @@
 # botkit
 
-botkit is two self-hosted WhatsApp bots written in Go. Each bot keeps its
-WhatsApp session and its data in one SQLite file.
+botkit is two self-hosted WhatsApp bots written in Go, for people who run a bot
+on their own WhatsApp account. A bot links to the account as a linked device
+through [whatsmeow](https://github.com/tulir/whatsmeow). It does not use the
+WhatsApp Business API. Each bot keeps its WhatsApp session and its data in one
+SQLite file.
 
 - **flow** walks everyone who messages it through a conversation that you write
   as a JSON file.
 - **latex** answers `!latex <equation>` with the equation rendered as a PNG. It
   serves registered users and groups.
 
-The latex bot needs Linux, `typst`, and `prlimit` from util-linux.
+The latex bot needs Linux and `prlimit` from util-linux.
 
 ## Install
 
@@ -19,7 +22,8 @@ mise install
 mise run build
 ```
 
-The build writes `bin/botkit-flow` and `bin/botkit-latex`.
+The build writes `bin/botkit-flow` and `bin/botkit-latex`. `mise install`
+installs Go, Typst, and the other tools pinned in [`mise.toml`](mise.toml).
 
 ## Try a bot
 
@@ -27,12 +31,17 @@ The offline REPL needs no WhatsApp account. Type a message at `you>`, read the
 reply at `bot>`, and type `:quit` to leave.
 
 ```bash
-mise exec -- bin/botkit-flow --repl     # type: hola
-mise exec -- bin/botkit-latex --repl    # type: !latex \frac{a}{b}
+mise exec -- bin/botkit-latex --repl
 ```
 
-The flow bot greets you with Luma, its built-in reading-club guide. The latex
-bot replies `bot> [image image/png, ...]` and reacts with ✅.
+```text
+you> !latex \frac{a}{b}
+bot> [image image/png, 2486 bytes]
+bot> reaction ✅
+```
+
+`mise exec -- bin/botkit-flow --repl` starts the flow bot. Type `hola` and it
+answers as Luma, its built-in Spanish reading-club guide.
 
 ## Run a bot on WhatsApp
 
@@ -46,12 +55,11 @@ messages until SIGINT or SIGTERM.
 
 ## Features
 
-- Pair with a QR code or a pairing code.
-- Flow: Luma, a named conversational reading-club guide with free-text intent,
-  typo recovery, memory, short confirmations, success reactions, and opt-in
-  rate-limited follow-ups.
-- Flow: per-user state and conversation history in SQLite, useful receipt-image
-  handling, and a flag for users who need a person.
+- Pairing with a QR code or a pairing code.
+- Flow: a conversation graph in JSON, with exact, keyword, regex, and media
+  conditions. A keyword tolerates typos.
+- Flow: per-user state and message history in SQLite, payment images saved to
+  disk, a flag for users who need a person, and reminders for users who opt in.
 - Latex: Typst with the Mitex package, under limits on time, memory, file size,
   and image size.
 - Latex: ranks, owners, and registered groups decide who can run a command.

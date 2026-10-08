@@ -12,18 +12,18 @@ mise exec -- bin/botkit-latex --repl
 `--repl` must be the first argument. Type a message at `you>`. The bot answers
 at `bot>`. An image reply shows as `[image image/png, N bytes]`, a reaction as
 `reaction ✅`, and a message the bot ignores as `(no reply)`. Type `:quit` or
-`:exit`, or close stdin, to leave.
-
-The built-in flow introduces itself as Luma. Try a natural-language path such as
-`misteryo`, then `sí`, `recordatorios`, and `sí`; the fake transport shows a
-reaction after the enrolling `sí`, but not after club viewing or reminder
-consent. `qué elegí` demonstrates the SQLite memory. The production hourly
-scheduler exercises opt-in reminders through `flow.App.FollowUp`; ordinary REPL
-messages never create consent implicitly.
+`:exit`, or close stdin, to leave. Log lines go to stderr at `BOTKIT_LOG_LEVEL`,
+so they can appear between the prompts.
 
 The REPL reads the same environment as `run`, including `BOTKIT_STORE_PATH`, and
-writes the bot's tables to that database. It logs to stderr at
-`BOTKIT_LOG_LEVEL`.
+writes the bot's tables to that database. Point `BOTKIT_STORE_PATH` at a scratch
+file to keep a session apart from a real one.
+
+The flow bot starts Luma, the built-in flow. A path through it: `misteryo`,
+`sí`, `recordatorios`, `sí`. The reaction ✅ follows the first `sí` and not the
+reminder consent. That `sí` runs `create_new_lead`, which stores nothing: the
+choice was stored at `misteryo`. `qué elegí` shows the stored memory. The REPL
+does not run the reminder scheduler.
 
 ## Rank
 
