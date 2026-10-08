@@ -33,13 +33,12 @@ var (
 	errEmptyRegex = fmt.Errorf("%w: needs a regex", ErrValues)
 )
 
-//go:embed example.json
-var example []byte
+//go:embed engaging.json
+var engaging []byte
 
-// Example returns the flow built into the binary, a small shop that uses every
-// feature.
-func Example() (*Flow, error) {
-	return Parse(example)
+// EngagingExample returns Luma's built-in conversational reading-club flow.
+func EngagingExample() (*Flow, error) {
+	return Parse(engaging)
 }
 
 // Load reads and validates the flow file at path.

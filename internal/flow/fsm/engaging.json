@@ -1,0 +1,128 @@
+{
+  "start_node": "WELCOME",
+  "global_transitions": [
+    {"condition":{"type":"keyword","value":["menu","inicio","volver"]},"target":"WELCOME"},
+    {"condition":{"type":"keyword","value":["no mas recordatorios","no más recordatorios","desactivar avisos","cancelar avisos"]},"target":"FOLLOW_UP_OFF","action":"opt_out_follow_up"},
+    {"condition":{"type":"keyword","value":["quien eres","quién eres","tu nombre"]},"target":"ABOUT"},
+    {"condition":{"type":"keyword","value":["que elegi","qué elegí","ultima","última","historial"]},"target":"MEMORY"},
+    {"condition":{"type":"keyword","value":["recordatorio","recordatorios","avísame","avisame","seguir"]},"target":"FOLLOW_UP"},
+    {"condition":{"type":"keyword","value":["ayuda","persona","asesora","agente"]},"target":"NEEDS_ASSISTANCE"}
+  ],
+  "nodes": {
+    "WELCOME": {
+      "title":"Bienvenida",
+      "message":{"type":"text","content":"{{greeting}} Soy *{{persona}}*, tu guía de clubes de lectura. Cuéntame qué te apetece — misterio, poesía, algo para empezar — o pregunta por precios y horarios."},
+      "transitions":[
+        {"condition":{"type":"keyword","value":["misterio","policial","detective","thriller","novela negra"]},"target":"MYSTERY"},
+        {"condition":{"type":"keyword","value":["poesia","poesía","poemas","versos"]},"target":"POETRY"},
+        {"condition":{"type":"keyword","value":["principiante","nuevos","empezar","retomar","lectura facil","lectura fácil"]},"target":"BEGINNER"},
+        {"condition":{"type":"keyword","value":["precio","precios","costo","cuesta"]},"target":"PRICE"},
+        {"condition":{"type":"keyword","value":["horario","horarios","cuando","cuándo","hora"]},"target":"SCHEDULE"}
+      ],
+      "fallback_message":"Te sigo 😊 Prueba con *misterio*, *poesía*, *empezar*, *precios* u *horarios*. También puedes decirme qué buscas con tus palabras."
+    },
+    "MYSTERY": {
+      "title":"Club Misterio",
+      "action":"remember_choice",
+      "message":{"type":"text","content":"Buena pista, {{name}}. *Club Misterio* se reúne los martes a las 7 p. m. (S/ 40 al mes). ¿Te apunto?"},
+      "transitions":[
+        {"condition":{"type":"keyword","value":["inscribirme","apuntame","apúntame","quiero","si","sí"]},"target":"BOOKED","action":"create_new_lead"},
+        {"condition":{"type":"media_type","value":["image"]},"target":"RECEIPT","action":"save_payment_voucher"}
+      ],
+      "fallback_message":"Puedo apuntarte al club o mostrarte otra opción. Responde *sí* para seguir, *menú* para volver o escribe *poesía* / *empezar*."
+    },
+    "POETRY": {
+      "title":"Club Poesía",
+      "action":"remember_choice",
+      "message":{"type":"text","content":"Si te llaman los versos: *Club Poesía*, sábados a las 11 a. m. (S/ 30 al mes). ¿Te apunto?"},
+      "transitions":[{"condition":{"type":"keyword","value":["inscribirme","apuntame","apúntame","quiero","si","sí"]},"target":"BOOKED","action":"create_new_lead"}],
+      "fallback_message":"Responde *sí* para seguir, *menú* para volver o dime si prefieres *misterio* o *empezar*."
+    },
+    "BEGINNER": {
+      "title":"Club Primeras Páginas",
+      "action":"remember_choice",
+      "message":{"type":"text","content":"Para retomar sin presión, te recomiendo *Primeras Páginas*: un libro corto al mes y conversación amable. ¿Te apunto?"},
+      "transitions":[{"condition":{"type":"keyword","value":["inscribirme","apuntame","apúntame","quiero","si","sí"]},"target":"BOOKED","action":"create_new_lead"}],
+      "fallback_message":"Responde *sí* para seguir, *menú* para volver o pregúntame por *precios*."
+    },
+    "PRICE": {
+      "title":"Precios",
+      "action":"update_lead_consulted_price",
+      "message":{"type":"text","content":"Los clubes cuestan S/ 30–40 al mes y la inscripción es gratis. ¿Te interesa *misterio*, *poesía* o *empezar*?"},
+      "transitions":[
+        {"condition":{"type":"keyword","value":["misterio","policial","detective"]},"target":"MYSTERY"},
+        {"condition":{"type":"keyword","value":["poesia","poesía","poemas"]},"target":"POETRY"},
+        {"condition":{"type":"keyword","value":["principiante","nuevos","empezar"]},"target":"BEGINNER"}
+      ],
+      "fallback_message":"Dime *misterio*, *poesía* o *empezar* y te cuento el plan que encaja."
+    },
+    "SCHEDULE": {
+      "title":"Horarios",
+      "message":{"type":"text","content":"Nos reunimos martes y jueves a las 7 p. m., y sábados a las 11 a. m. ¿Qué tipo de lectura te atrae?"},
+      "transitions":[
+        {"condition":{"type":"keyword","value":["misterio","policial","detective"]},"target":"MYSTERY"},
+        {"condition":{"type":"keyword","value":["poesia","poesía","poemas"]},"target":"POETRY"},
+        {"condition":{"type":"keyword","value":["principiante","nuevos","empezar"]},"target":"BEGINNER"}
+      ],
+      "fallback_message":"Dime *misterio*, *poesía* o *empezar* y te llevo directo."
+    },
+    "BOOKED": {
+      "title":"Inscripción iniciada",
+      "message":{"type":"text","content":"Listo, {{name}} ✅ Dejé tu interés en *{{last_choice}}*. Si quieres, envíame una foto del comprobante y la guardo para el equipo."},
+      "transitions":[{"condition":{"type":"media_type","value":["image"]},"target":"RECEIPT","action":"save_payment_voucher"}],
+      "fallback_message":"Tu interés ya quedó guardado. Puedes enviar la foto del comprobante, escribir *menú* o pedir *ayuda*."
+    },
+    "RECEIPT": {
+      "title":"Comprobante recibido",
+      "message":{"type":"text","content":"Recibí la foto, {{name}}. La dejé lista para que el equipo confirme tu cupo."
+      },
+      "transitions":[{"condition":{"type":"media_type","value":["image"]},"target":"RECEIPT","action":"save_payment_voucher"}],
+      "fallback_message":"Cuando tengas otro comprobante, envíame una *foto*. También puedes escribir *menú*."
+    },
+    "ABOUT": {
+      "title":"Sobre Luma",
+      "message":{"type":"text","content":"Soy *{{persona}}*: cálida, breve y curiosa. Recuerdo lo que eliges para no hacerte repetirlo. La última pista que guardé es *{{last_choice}}*."},
+      "transitions":[{"condition":{"type":"any_text"},"target":"WELCOME"}]
+    },
+    "MEMORY": {
+      "title":"Memoria",
+      "message":{"type":"text","content":"Recuerdo tu última elección: *{{last_choice}}*. Tu último mensaje fue: “{{history_hint}}”. ¿Seguimos desde ahí o buscas otra cosa?"},
+      "transitions":[{"condition":{"type":"any_text"},"target":"WELCOME"}]
+    },
+    "FOLLOW_UP": {
+      "title":"Recordatorios",
+      "message":{"type":"text","content":"Puedo escribirte como máximo una vez al día para retomar tu club. ¿Quieres que te avise? Responde *sí* o *no*."},
+      "transitions":[
+        {"condition":{"type":"keyword","value":["si","sí","dale","quiero"]},"target":"FOLLOW_UP_ON","action":"opt_in_follow_up"},
+        {"condition":{"type":"keyword","value":["no","nunca","cancelar"]},"target":"FOLLOW_UP_OFF","action":"opt_out_follow_up"}
+      ],
+      "fallback_message":"Responde solo *sí* si quieres que te escriba más adelante, o *no* para dejarlo apagado."
+    },
+    "FOLLOW_UP_ON": {
+      "title":"Recordatorios activados",
+      "message":{"type":"text","content":"Hecho. Solo te escribiré con tu permiso y con calma; puedes decir *no más recordatorios* cuando quieras."},
+      "transitions":[
+        {"condition":{"type":"keyword","value":["no mas","no más","cancelar","desactivar"]},"target":"FOLLOW_UP_OFF","action":"opt_out_follow_up"},
+        {"condition":{"type":"keyword","value":["misterio","poesia","poesía","empezar","club","sábado","sabados","sábados"]},"target":"WELCOME"}
+      ],
+      "fallback_message":"Sigo aquí 😊 Puedes decir *misterio*, *poesía*, *empezar* o *menú*. Si quieres apagar los avisos, escribe *no más recordatorios*."
+    },
+    "FOLLOW_UP_OFF": {
+      "title":"Recordatorios apagados",
+      "message":{"type":"text","content":"Listo, no te escribiré por iniciativa propia. Si cambias de idea, di *recordatorios*."},
+      "transitions":[
+        {"condition":{"type":"keyword","value":["recordatorios","avísame","avisame"]},"target":"FOLLOW_UP"},
+        {"condition":{"type":"keyword","value":["misterio","poesia","poesía","empezar","club"]},"target":"WELCOME"},
+        {"condition":{"type":"keyword","value":["sábado","sabados","sábados","horario","horarios"]},"target":"SCHEDULE"}
+      ],
+      "fallback_message":"No pasa nada: los avisos siguen apagados. Puedo ayudarte con *misterio*, *poesía*, *empezar* o *horarios*."
+    },
+    "NEEDS_ASSISTANCE": {
+      "title":"Ayuda",
+      "action":"escalate_to_human_agent",
+      "message":{"type":"text","content":"Te acompaño hasta aquí, pero una persona del equipo debe tomar el relevo. Puedes dejarme una foto o escribir qué pasó; no te voy a dejar en un callejón sin salida."},
+      "transitions":[{"condition":{"type":"media_type","value":["image"]},"target":"RECEIPT","action":"save_payment_voucher"}],
+      "fallback_message":"Cuéntame en una frase qué necesitas y lo dejo preparado para el equipo."
+    }
+  }
+}

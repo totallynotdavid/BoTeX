@@ -39,10 +39,11 @@ type Route struct {
 // message without an attachment, and text is then the whole message or, with
 // media, its caption.
 //
-// It tries, in order: the node's transitions (media conditions first when the
-// message has media, so a caption does not steal a photo), the global
-// transitions (only those leading to HelpNode on a node that ignores globals),
-// and then the fallbacks.
+// It tries global transitions before node transitions, so informational and
+// safety commands cannot be shadowed by a local fuzzy keyword. A node that
+// ignores globals still allows those that lead to HelpNode. Once globals have
+// had their chance, node media conditions are tried first when the message has
+// an attachment, so a caption does not steal a photo.
 func (f *Flow) DetermineNext(current, text string, media bot.MediaKind) Route {
 	node, ok := f.Nodes[current]
 	if !ok {
@@ -51,12 +52,12 @@ func (f *Flow) DetermineNext(current, text string, media bot.MediaKind) Route {
 
 	input := strings.ToLower(strings.TrimSpace(text))
 
-	if hit := matchNode(node.Transitions, input, media); hit != nil {
-		return Route{Node: hit.Target, Action: hit.Action, Via: ViaNode}
-	}
-
 	if hit := f.matchGlobal(input, media, node.IgnoreGlobalTransitions); hit != nil {
 		return Route{Node: hit.Target, Action: hit.Action, Via: ViaGlobal}
+	}
+
+	if hit := matchNode(node.Transitions, input, media); hit != nil {
+		return Route{Node: hit.Target, Action: hit.Action, Via: ViaNode}
 	}
 
 	// A file where an image was expected, not just an unmatched message.

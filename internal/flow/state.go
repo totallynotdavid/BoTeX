@@ -13,15 +13,21 @@ import (
 // the zero State with only UserID set, so CurrentNode is empty until the flow
 // places them.
 type State struct {
-	UserID             bot.JID
-	CurrentNode        string
-	UserName           string
-	CourseInterest     string
-	SelectedCourseID   string
+	UserID           bot.JID
+	CurrentNode      string
+	UserName         string
+	CourseInterest   string
+	SelectedCourseID string
+	// LastChoice is the last useful choice the user made.
+	LastChoice string
+	// FollowUpOptIn records explicit permission for proactive reminders.
+	FollowUpOptIn bool
+	// LastFollowUp is the timestamp of the current reminder claim. It remains set
+	// after a successful send to enforce the follow-up interval.
+	LastFollowUp       time.Time
 	ConsultedPrice     bool
 	VoucherPath        string
 	RequiresHumanAgent bool
-	RepromptCount      int
 	// LastUpdated is when the store last saved the state.
 	LastUpdated time.Time
 }

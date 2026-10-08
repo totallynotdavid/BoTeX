@@ -18,10 +18,12 @@ CREATE TABLE IF NOT EXISTS user_state (
     user_name TEXT NOT NULL DEFAULT '',
     course_interest TEXT NOT NULL DEFAULT '',
     selected_course_id TEXT NOT NULL DEFAULT '',
+    last_choice TEXT NOT NULL DEFAULT '',
+    follow_up_opt_in BOOLEAN NOT NULL DEFAULT FALSE,
+    last_follow_up DATETIME,
     consulted_price BOOLEAN NOT NULL DEFAULT FALSE,
     voucher_path TEXT NOT NULL DEFAULT '',
     requires_human_agent BOOLEAN NOT NULL DEFAULT FALSE,
-    reprompt_count INTEGER NOT NULL DEFAULT 0,
     last_updated DATETIME NOT NULL
 );
 
@@ -41,24 +43,28 @@ CREATE INDEX IF NOT EXISTS idx_conversation_user_time ON conversation_history(us
 
 const (
 	loadStateQuery = `
-		SELECT current_node, user_name, course_interest, selected_course_id, consulted_price,
-		       voucher_path, requires_human_agent, reprompt_count, last_updated
+		SELECT current_node, user_name, course_interest, selected_course_id, last_choice,
+		       follow_up_opt_in, last_follow_up, consulted_price, voucher_path,
+		       requires_human_agent, last_updated
 		FROM user_state WHERE user_id = ?
 	`
 
 	saveStateQuery = `
 		INSERT INTO user_state (user_id, current_node, user_name, course_interest, selected_course_id,
-		                        consulted_price, voucher_path, requires_human_agent, reprompt_count, last_updated)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                        last_choice, follow_up_opt_in, last_follow_up, consulted_price,
+		                        voucher_path, requires_human_agent, last_updated)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id) DO UPDATE SET
 			current_node = excluded.current_node,
 			user_name = excluded.user_name,
 			course_interest = excluded.course_interest,
 			selected_course_id = excluded.selected_course_id,
+			last_choice = excluded.last_choice,
+			follow_up_opt_in = excluded.follow_up_opt_in,
+			last_follow_up = excluded.last_follow_up,
 			consulted_price = excluded.consulted_price,
 			voucher_path = excluded.voucher_path,
 			requires_human_agent = excluded.requires_human_agent,
-			reprompt_count = excluded.reprompt_count,
 			last_updated = excluded.last_updated
 	`
 
@@ -70,9 +76,17 @@ const (
 	countMessagesQuery = `SELECT COUNT(id) FROM conversation_history WHERE user_id = ?`
 )
 
+// FollowUp is a claimed reminder for a user who explicitly opted in.
+type FollowUp struct {
+	User       bot.JID
+	LastChoice string
+	ClaimedAt  time.Time
+}
+
 // Store keeps every user's State and conversation history in the shared
-// SQLite database. It is the only writer of both tables, and Turn is the only
-// way to change a State.
+// SQLite database. It is the only writer of both tables. Inbound turns use
+// Turn; the follow-up scheduler uses state-only claims/releases and a
+// history-only append.
 type Store struct {
 	db *sql.DB
 
@@ -95,6 +109,43 @@ func NewStore(ctx context.Context, database *sql.DB) (*Store, error) {
 	_, err := database.ExecContext(ctx, schema)
 	if err != nil {
 		return nil, fmt.Errorf("exec schema: %w", err)
+	}
+
+	// Existing installations were created before memory and follow-up consent
+	// became part of flow state. SQLite has no portable IF NOT EXISTS form for
+	// ADD COLUMN, so inspect the table before applying each small migration.
+	for name, definition := range map[string]string{
+		"last_choice":      "TEXT NOT NULL DEFAULT ''",
+		"follow_up_opt_in": "BOOLEAN NOT NULL DEFAULT FALSE",
+		"last_follow_up":   "DATETIME",
+	} {
+		var present int
+
+		err = database.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('user_state') WHERE name = ?`, name).Scan(&present)
+		if err != nil {
+			return nil, fmt.Errorf("check flow column %s: %w", name, err)
+		}
+
+		if present == 0 {
+			_, err = database.ExecContext(ctx, "ALTER TABLE user_state ADD COLUMN "+name+" "+definition)
+			if err != nil {
+				return nil, fmt.Errorf("add flow column %s: %w", name, err)
+			}
+		}
+	}
+
+	var hasRepromptCount int
+
+	err = database.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('user_state') WHERE name = 'reprompt_count'`).Scan(&hasRepromptCount)
+	if err != nil {
+		return nil, fmt.Errorf("check obsolete flow column reprompt_count: %w", err)
+	}
+
+	if hasRepromptCount != 0 {
+		_, err = database.ExecContext(ctx, `ALTER TABLE user_state DROP COLUMN reprompt_count`)
+		if err != nil {
+			return nil, fmt.Errorf("drop obsolete flow column reprompt_count: %w", err)
+		}
 	}
 
 	return &Store{db: database, locks: make(map[bot.JID]*userLock)}, nil
@@ -129,7 +180,7 @@ func (s *Store) Turn(ctx context.Context, user bot.JID, turn func(state *State) 
 		return fmt.Errorf("turn of %s: %w", user, err)
 	}
 
-	return s.save(ctx, user, state, messages)
+	return s.saveInbound(ctx, user, state, messages)
 }
 
 // MessageCount returns how many messages, sent and received, user's history
@@ -143,6 +194,103 @@ func (s *Store) MessageCount(ctx context.Context, user bot.JID) (int, error) {
 	}
 
 	return count, nil
+}
+
+// ClaimFollowUps atomically claims reminders that are both opted in and past
+// the interval. A claim is released when its send fails; a successful send
+// leaves the claim as the user's last-follow-up timestamp. The write preserves
+// LastUpdated, which belongs to inbound conversation activity.
+func (s *Store) ClaimFollowUps(ctx context.Context, now time.Time, interval time.Duration) (claimed []FollowUp, returnErr error) {
+	now = now.UTC()
+	cutoff := now.Add(-interval)
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT user_id FROM user_state
+		WHERE follow_up_opt_in AND (last_follow_up IS NULL OR last_follow_up <= ?)
+		ORDER BY last_updated`, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("find follow-ups: %w", err)
+	}
+	defer func() { returnErr = errors.Join(returnErr, rows.Close()) }()
+
+	var users []bot.JID
+
+	for rows.Next() {
+		var user bot.JID
+
+		err = rows.Scan(&user)
+		if err != nil {
+			return nil, fmt.Errorf("scan follow-up: %w", err)
+		}
+
+		users = append(users, user)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("read follow-ups: %w", err)
+	}
+
+	claimed = make([]FollowUp, 0, len(users))
+	for _, user := range users {
+		followUp, err := s.claimFollowUp(ctx, user, cutoff, now)
+		if err != nil {
+			releaseErr := s.releaseClaims(claimed, ctx)
+
+			return nil, errors.Join(err, releaseErr)
+		}
+
+		if followUp != nil {
+			claimed = append(claimed, *followUp)
+		}
+	}
+
+	return claimed, nil
+}
+
+// ReleaseFollowUp returns a failed claim to the eligible pool. It only clears
+// the matching timestamp, so a newer successful scheduler cannot be undone.
+func (s *Store) ReleaseFollowUp(ctx context.Context, user bot.JID, claimedAt time.Time) error {
+	return s.schedulerState(ctx, user, func(state *State) error {
+		if state.LastFollowUp.Equal(claimedAt) {
+			state.LastFollowUp = time.Time{}
+		}
+
+		return nil
+	})
+}
+
+// RecordFollowUp appends a bot-initiated reminder after its send succeeds. It
+// writes history only: the claim already records the send attempt and remains
+// in place even if this history write fails, preventing a duplicate reminder.
+func (s *Store) RecordFollowUp(ctx context.Context, user bot.JID, timestamp time.Time, text string) error {
+	lock, err := s.acquire(ctx, user)
+	if err != nil {
+		return err
+	}
+	defer s.release(user, lock)
+
+	state, err := s.load(ctx, user)
+	if err != nil {
+		return err
+	}
+
+	txn, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin follow-up history of %s: %w", user, err)
+	}
+
+	_, err = txn.ExecContext(ctx, saveMessageQuery, user, timestamp.UTC(), Outbound, text, state.CurrentNode)
+	if err != nil {
+		return fmt.Errorf("save follow-up history of %s: %w", user, errors.Join(err, txn.Rollback()))
+	}
+
+	err = txn.Commit()
+	if err != nil {
+		return fmt.Errorf("commit follow-up history of %s: %w", user, err)
+	}
+
+	return nil
 }
 
 // acquire takes user's lock, waiting for the turn that holds it. It gives up
@@ -192,17 +340,25 @@ func (s *Store) forget(user bot.JID, lock *userLock) {
 func (s *Store) load(ctx context.Context, user bot.JID) (*State, error) {
 	state := &State{UserID: user}
 
+	var lastFollowUp sql.NullTime
+
 	err := s.db.QueryRowContext(ctx, loadStateQuery, user).Scan(
 		&state.CurrentNode,
 		&state.UserName,
 		&state.CourseInterest,
 		&state.SelectedCourseID,
+		&state.LastChoice,
+		&state.FollowUpOptIn,
+		&lastFollowUp,
 		&state.ConsultedPrice,
 		&state.VoucherPath,
 		&state.RequiresHumanAgent,
-		&state.RepromptCount,
 		&state.LastUpdated,
 	)
+	if lastFollowUp.Valid {
+		state.LastFollowUp = lastFollowUp.Time
+	}
+
 	if errors.Is(err, sql.ErrNoRows) {
 		return state, nil
 	}
@@ -214,19 +370,120 @@ func (s *Store) load(ctx context.Context, user bot.JID) (*State, error) {
 	return state, nil
 }
 
-// save stores state and appends messages to user's history in one transaction:
-// either all of them are stored or none is. state gets its new LastUpdated only
-// once the commit succeeded.
-func (s *Store) save(ctx context.Context, user bot.JID, state *State, messages []StoredMessage) error {
+// historyHint returns the most recent non-empty inbound text, bounded so an
+// old message cannot turn a short reply into an accidental transcript dump.
+func (s *Store) historyHint(ctx context.Context, user bot.JID) (string, error) {
+	var text string
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT message_content FROM conversation_history
+		WHERE user_id = ? AND direction = 'inbound' AND TRIM(message_content) <> ''
+		ORDER BY id DESC LIMIT 1`, user).Scan(&text)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("load history hint of %s: %w", user, err)
+	}
+
+	const maxHint = 80
+	if len([]rune(text)) > maxHint {
+		text = string([]rune(text)[:maxHint]) + "…"
+	}
+
+	return text, nil
+}
+
+func (s *Store) claimFollowUp(ctx context.Context, user bot.JID, cutoff, claimedAt time.Time) (*FollowUp, error) {
+	var followUp *FollowUp
+
+	err := s.schedulerState(ctx, user, func(state *State) error {
+		if !state.FollowUpOptIn || (!state.LastFollowUp.IsZero() && state.LastFollowUp.After(cutoff)) {
+			return nil
+		}
+
+		state.LastFollowUp = claimedAt
+		followUp = &FollowUp{User: user, LastChoice: state.LastChoice, ClaimedAt: claimedAt}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return followUp, nil
+}
+
+// schedulerState changes only scheduler-owned state and preserves LastUpdated.
+// The app separately treats a recent claim as activity without rewriting the
+// inbound conversation clock.
+func (s *Store) schedulerState(ctx context.Context, user bot.JID, change func(*State) error) error {
+	lock, err := s.acquire(ctx, user)
+	if err != nil {
+		return err
+	}
+	defer s.release(user, lock)
+
+	state, err := s.load(ctx, user)
+	if err != nil {
+		return err
+	}
+
+	err = change(state)
+	if err != nil {
+		return err
+	}
+
+	return s.saveScheduler(ctx, user, state)
+}
+
+func (s *Store) releaseClaims(claimed []FollowUp, ctx context.Context) error {
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+	defer cancel()
+
+	var errs []error
+
+	for _, followUp := range claimed {
+		err := s.ReleaseFollowUp(releaseCtx, followUp.User, followUp.ClaimedAt)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("release follow-up for %s: %w", followUp.User, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// saveInbound commits an inbound turn and its history atomically. It updates
+// LastUpdated only after the transaction succeeds.
+func (s *Store) saveInbound(ctx context.Context, user bot.JID, state *State, messages []StoredMessage) error {
 	saved := *state
 	saved.LastUpdated = time.Now().UTC()
 
+	err := s.save(ctx, user, &saved, messages)
+	if err != nil {
+		return err
+	}
+
+	state.LastUpdated = saved.LastUpdated
+
+	return nil
+}
+
+// saveScheduler commits scheduler-owned state without changing LastUpdated.
+func (s *Store) saveScheduler(ctx context.Context, user bot.JID, state *State) error {
+	return s.save(ctx, user, state, nil)
+}
+
+// save stores state and messages in one transaction: either all of them are
+// stored or none is.
+func (s *Store) save(ctx context.Context, user bot.JID, state *State, messages []StoredMessage) error {
 	txn, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin save of %s: %w", user, err)
 	}
 
-	err = saveTurn(ctx, txn, user, &saved, messages)
+	err = saveTurn(ctx, txn, user, state, messages)
 	if err != nil {
 		return fmt.Errorf("save state of %s: %w", user, errors.Join(err, txn.Rollback()))
 	}
@@ -236,22 +493,24 @@ func (s *Store) save(ctx context.Context, user bot.JID, state *State, messages [
 		return fmt.Errorf("commit save of %s: %w", user, err)
 	}
 
-	state.LastUpdated = saved.LastUpdated
-
 	return nil
 }
 
 func saveTurn(ctx context.Context, txn *sql.Tx, user bot.JID, state *State, messages []StoredMessage) error {
+	lastFollowUp := sql.NullTime{Time: state.LastFollowUp.UTC(), Valid: !state.LastFollowUp.IsZero()}
+
 	_, err := txn.ExecContext(ctx, saveStateQuery,
 		user,
 		state.CurrentNode,
 		state.UserName,
 		state.CourseInterest,
 		state.SelectedCourseID,
+		state.LastChoice,
+		state.FollowUpOptIn,
+		lastFollowUp,
 		state.ConsultedPrice,
 		state.VoucherPath,
 		state.RequiresHumanAgent,
-		state.RepromptCount,
 		state.LastUpdated,
 	)
 	if err != nil {

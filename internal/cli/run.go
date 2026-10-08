@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/totallynotdavid/botkit/internal/auth"
 	"github.com/totallynotdavid/botkit/internal/bot"
@@ -48,6 +49,10 @@ type prepared struct {
 	users    *auth.Service
 	built    Built
 	limiter  *ratelimit.Limiter
+}
+
+type followUpRunner interface {
+	FollowUp(ctx context.Context, transport bot.Transport, now time.Time) (int, error)
 }
 
 func (p prepared) close() error {
@@ -110,5 +115,43 @@ func runBot(ctx context.Context, client bot.Transport, built Built, limiter *rat
 		MaxInFlight: cfg.shared.MaxInFlight,
 	})
 
-	return runtime.Run(ctx) //nolint:wrapcheck // ExitStatus reads the runtime's own errors.
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	followUpDone := make(chan struct{})
+	if app, ok := built.App.(followUpRunner); ok {
+		go runFollowUps(runCtx, client, app, log, followUpDone)
+	} else {
+		close(followUpDone)
+	}
+
+	err := runtime.Run(runCtx)
+
+	cancel()
+	<-followUpDone
+
+	return err //nolint:wrapcheck // ExitStatus reads the runtime's own errors.
+}
+
+// runFollowUps wakes hourly. The flow app applies the stricter 24-hour claim
+// window and checks explicit consent in SQLite. Keeping the scheduler here
+// means the flow app remains usable by the offline REPL and fake tests without
+// making every app responsible for process lifetime.
+func runFollowUps(ctx context.Context, client bot.Transport, app followUpRunner, log *slog.Logger, done chan<- struct{}) {
+	defer close(done)
+
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			_, err := app.FollowUp(ctx, client, time.Now())
+			if err != nil {
+				log.ErrorContext(ctx, "proactive flow follow-up failed", "error", err)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
 }

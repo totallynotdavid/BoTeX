@@ -10,9 +10,9 @@ import (
 	"slices"
 )
 
-// HelpNode is the node a user is sent to when they ask for a person. Global
-// transitions that lead here stay active on nodes that ignore the others, and
-// the runtime escalates to it when a user is stuck. Every flow must have it.
+// HelpNode is the node a user is sent to when they explicitly ask for a
+// person. Global help transitions stay active on nodes that ignore the others.
+// Every flow must have it.
 const HelpNode = "NEEDS_ASSISTANCE"
 
 // The actions of a Route that stays in the current node because nothing
@@ -81,8 +81,9 @@ type Node struct {
 	FallbackMessage         string         `json:"fallback_message,omitempty"`
 }
 
-// Flow is a validated conversation. Build one with Parse, Load or Example: a
-// Flow assembled by hand has no compiled regexes and cannot route.
+// Flow is a validated conversation. Build one with Parse, Load or
+// EngagingExample. A Flow assembled by hand has no compiled regexes and cannot
+// route.
 // After Parse, a node's Transitions hold its included group first, then its
 // own, and a Flow is safe for concurrent use as long as nobody edits it.
 type Flow struct {

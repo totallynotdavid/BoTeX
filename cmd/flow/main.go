@@ -56,14 +56,14 @@ func configure(env *config.Env) cli.Build {
 	}
 }
 
-// load reads the flow file at path, or returns the built-in example when path
-// is empty. A path that cannot be loaded is an error, so a typo in FLOW_FILE
-// never serves the example to real users.
+// load reads the flow file at path, or returns the selected built-in flow when
+// path is empty. A path that cannot be loaded is an error, so a typo in
+// FLOW_FILE never serves a built-in flow to real users.
 func load(path string) (*fsm.Flow, error) {
 	if path == "" {
-		definition, err := fsm.Example()
+		definition, err := fsm.EngagingExample()
 		if err != nil {
-			return nil, fmt.Errorf("load example flow: %w", err)
+			return nil, fmt.Errorf("load built-in flow: %w", err)
 		}
 
 		return definition, nil

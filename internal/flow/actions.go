@@ -35,8 +35,8 @@ type Downloader interface {
 	Download(ctx context.Context, media *bot.Media) ([]byte, error)
 }
 
-// actionEscalate hands the user to a person. The app runs it when a user is
-// stuck or an action fails, and the help node names it too.
+// actionEscalate hands the user to a person when the flow explicitly asks for
+// one.
 const actionEscalate = "escalate_to_human_agent"
 
 // handler carries out one action. msg is the message that took the user along
@@ -62,6 +62,9 @@ func NewActions(voucherDir string) *Actions {
 		"create_new_lead":               stateOnly(func(*State, string) {}),
 		"clear_user_name":               stateOnly(func(state *State, _ string) { state.UserName = "" }),
 		"set_selected_course":           stateOnly(func(state *State, origin string) { state.SelectedCourseID = origin }),
+		"remember_choice":               stateOnly(func(state *State, origin string) { state.LastChoice = origin }),
+		"opt_in_follow_up":              stateOnly(func(state *State, _ string) { state.FollowUpOptIn = true }),
+		"opt_out_follow_up":             stateOnly(func(state *State, _ string) { state.FollowUpOptIn = false }),
 		"update_lead_interest_beginner": stateOnly(func(state *State, _ string) { state.CourseInterest = "beginner" }),
 		"update_lead_interest_advanced": stateOnly(func(state *State, _ string) { state.CourseInterest = "advanced" }),
 		"update_lead_consulted_price":   stateOnly(func(state *State, _ string) { state.ConsultedPrice = true }),
@@ -104,9 +107,12 @@ func (a *Actions) Check(flow *fsm.Flow) error {
 // Apply runs action on state. msg is the message that took the user along the
 // transition, and origin is the node the action came from. media fetches the
 // attachment of msg: it is per call because the connection that received msg
-// answers it. An empty action does nothing. A message that cannot carry out
-// the action is reported as an error and leaves state as it was.
+// answers it. An empty action does nothing.
 func (a *Actions) Apply(ctx context.Context, media Downloader, action string, state *State, msg bot.Message, origin string) error {
+	return a.apply(ctx, media, action, state, msg, origin)
+}
+
+func (a *Actions) apply(ctx context.Context, media Downloader, action string, state *State, msg bot.Message, origin string) error {
 	if action == "" {
 		return nil
 	}

@@ -20,10 +20,6 @@ const (
 	// messageTimeout bounds one message: the turn, the download and the replies.
 	messageTimeout = 30 * time.Second
 
-	// fallbackLimit is how many messages in a row the flow may fail to
-	// understand before the user is handed to a person.
-	fallbackLimit = 3
-
 	// staleAfter is how long a conversation may rest before the next message
 	// starts it again from the start node.
 	staleAfter = 24 * time.Hour
@@ -31,13 +27,17 @@ const (
 	// newcomerMessages is how many stored messages a user may have and still be
 	// welcomed instead of welcomed back.
 	newcomerMessages = 2
+
+	// followUpInterval is deliberately long. Proactive messages are a privilege
+	// granted by the user, not a second conversation loop.
+	followUpInterval = 24 * time.Hour
 )
 
 // What the bot says when the flow does not say it.
 const (
 	textUnsupportedMedia = "Lo siento, no puedo procesar ese tipo de mensaje. Por favor, envíame un mensaje de texto. 😊"
 	textInvalidName      = "No pude reconocer eso como un nombre. ¿Podrías intentarlo de nuevo, por favor?"
-	textActionFailed     = "Hubo un problema al procesar tu mensaje. Una asesora te ayudará a continuar. Disculpa las molestias."
+	textActionRetry      = "No pude procesar eso todavía. Inténtalo una vez más o escribe *ayuda* y lo dejo preparado para una persona."
 	textWrongMedia       = "Parece que enviaste un tipo de archivo incorrecto. Por favor, asegúrate de enviar %s para que pueda procesarlo. Gracias 😊"
 	textMenuFallback     = "No entendí tu respuesta 😊 Por favor, revisa las opciones:\n\n"
 
@@ -45,6 +45,7 @@ const (
 	greetingBack = "Qué gusto verte de nuevo."
 	nameUnknown  = "amigx"
 	courseUnset  = "el curso seleccionado"
+	personaName  = "Luma"
 )
 
 // mediaNames says each kind of media the way the wrong-media reply asks for it.
@@ -90,10 +91,10 @@ func New(flow *fsm.Flow, store *Store, actions *Actions, cfg Config, log *slog.L
 // a reply the user sees is one the history holds. A reply that cannot be sent
 // is returned and the turn stays stored.
 //
-// An action that fails does not fail the turn: the user is escalated to a
-// person and told so, and Handle returns the action's error once that is done.
-// A name that does not look like one is not a failure, only a question asked
-// again. If the turn cannot be stored, a voucher it saved is removed.
+// An action that fails keeps the user in the guided step and asks for a retry;
+// Handle returns the action's error after storing that recovery reply. A name
+// that does not look like one is not a failure, only a question asked again.
+// If the turn cannot be stored, a voucher it saved is removed.
 func (a *App) Handle(ctx context.Context, msg bot.Message, chat *bot.Chat) error {
 	ctx, cancel := context.WithTimeout(ctx, messageTimeout)
 	defer cancel()
@@ -111,25 +112,88 @@ func (a *App) Handle(ctx context.Context, msg bot.Message, chat *bot.Chat) error
 
 	run.log.DebugContext(ctx, "message handled", "node", run.state.CurrentNode, "replies", len(run.replies))
 
-	return errors.Join(a.send(ctx, chat, run.replies), run.failure)
+	sendErr := a.send(ctx, chat, run.replies)
+	if sendErr == nil && run.success {
+		sendErr = chat.React(ctx, "✅")
+	}
+
+	return errors.Join(sendErr, run.failure)
+}
+
+// FollowUp sends one opt-in reminder per eligible user. The store claims each
+// row before the send, so two schedulers cannot send the same reminder inside
+// the rate window. The production CLI calls this from its hourly scheduler;
+// ordinary inbound turns never trigger it implicitly.
+func (a *App) FollowUp(ctx context.Context, transport bot.Transport, now time.Time) (int, error) {
+	now = now.UTC()
+
+	users, err := a.store.ClaimFollowUps(ctx, now, followUpInterval)
+	if err != nil {
+		return 0, err
+	}
+
+	sent := 0
+
+	var sendErrs []error
+
+	for _, user := range users {
+		choice := a.choiceLabel(user.LastChoice)
+		if choice == "" {
+			choice = "algo nuevo"
+		}
+
+		text := fmt.Sprintf("Hola, soy %s 👋 ¿Seguimos con %s? Responde cuando te venga bien.", personaName, choice)
+
+		err = transport.SendText(ctx, user.User, text)
+		if err != nil {
+			releaseErr := a.releaseFollowUp(ctx, user)
+			sendErrs = append(sendErrs, errors.Join(fmt.Errorf("send follow-up to %s: %w", user.User, err), releaseErr))
+
+			continue
+		}
+
+		sent++
+
+		err = a.store.RecordFollowUp(ctx, user.User, now, text)
+		if err != nil {
+			// The claim is deliberately retained: the transport already accepted
+			// the reminder, so retrying would violate at-most-once delivery.
+			sendErrs = append(sendErrs, fmt.Errorf("store follow-up to %s: %w", user.User, err))
+
+			continue
+		}
+	}
+
+	return sent, errors.Join(sendErrs...)
+}
+
+func (a *App) releaseFollowUp(ctx context.Context, user FollowUp) error {
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), messageTimeout)
+	defer cancel()
+
+	return a.store.ReleaseFollowUp(releaseCtx, user.User, user.ClaimedAt)
 }
 
 // send sends each reply after the typing delay. The delay ends early when ctx
 // does, and then nothing more is sent.
 func (a *App) send(ctx context.Context, chat *bot.Chat, replies []string) error {
+	var errs []error
+
 	for _, text := range replies {
 		err := a.typing(ctx)
 		if err != nil {
-			return err
+			errs = append(errs, err)
+
+			continue
 		}
 
 		err = chat.Send(ctx, text)
 		if err != nil {
-			return err //nolint:wrapcheck // Chat.Send wraps it.
+			errs = append(errs, err)
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 func (a *App) typing(ctx context.Context) error {
@@ -165,6 +229,9 @@ type turn struct {
 	// failure is what the actions of the turn returned, apart from a name that
 	// was not a name.
 	failure error
+	// success controls the post-save reaction. Fallbacks and failed actions
+	// never set it.
+	success bool
 }
 
 // play runs the message against state, which it leaves as the turn ends.
@@ -173,7 +240,13 @@ func (t *turn) play(ctx context.Context, state *State) {
 	t.voucherBefore = state.VoucherPath
 
 	from := state.CurrentNode
-	fresh := from == "" || time.Since(state.LastUpdated) > staleAfter
+
+	lastActivity := state.LastUpdated
+	if state.LastFollowUp.After(lastActivity) {
+		lastActivity = state.LastFollowUp
+	}
+
+	fresh := from == "" || time.Now().UTC().Sub(lastActivity.UTC()) > staleAfter
 
 	var startErr error
 
@@ -185,7 +258,7 @@ func (t *turn) play(ctx context.Context, state *State) {
 	t.store(Inbound, t.msg.Text, from, t.msg.Time)
 
 	if startErr != nil {
-		t.fail(ctx, from, startErr)
+		t.fail(from, startErr)
 
 		return
 	}
@@ -219,41 +292,33 @@ func (t *turn) restart(ctx context.Context) error {
 	}
 
 	t.state.CurrentNode = start
-	t.state.RepromptCount = 0
 
 	return t.enter(ctx, start, "")
 }
 
-// respond answers a message that routed from node from along route. A message
-// the flow does not understand counts toward escalation, and any other resets
-// the count.
+// respond answers a message that routed from node from along route. An
+// unrecognised message is repaired in place.
 func (t *turn) respond(ctx context.Context, from string, route fsm.Route) {
 	if route.Via != fsm.ViaFallback {
-		t.state.RepromptCount = 0
 		t.advance(ctx, from, route.Node, route.Action)
 
 		return
 	}
 
-	t.state.RepromptCount++
-	t.log.DebugContext(ctx, "fallback", "node", from, "action", route.Action, "count", t.state.RepromptCount)
+	t.log.DebugContext(ctx, "fallback", "node", from, "action", route.Action)
 
-	switch {
-	case t.state.RepromptCount >= fallbackLimit:
-		t.log.WarnContext(ctx, "user is stuck in a fallback loop, escalating", "node", from)
-
-		t.state.RepromptCount = 0
-		t.advance(ctx, from, fsm.HelpNode, actionEscalate)
-	case route.Action == fsm.ActionFallbackWrongMedia:
+	if route.Action == fsm.ActionFallbackWrongMedia {
 		t.finish(from, fmt.Sprintf(textWrongMedia, t.expectedMedia(from)))
-	default:
-		t.fallback(ctx, from)
+
+		return
 	}
+
+	t.fallback(ctx, from)
 }
 
 // advance moves the user from node from to node target, running the action of
 // the transition and then the action of the node entered. When an action fails
-// the user is asked for the name again, or escalated to a person.
+// the user stays in the guided step and gets a retry prompt.
 func (t *turn) advance(ctx context.Context, from, target, action string) {
 	err := t.apply(ctx, action, from)
 	if err == nil {
@@ -261,25 +326,38 @@ func (t *turn) advance(ctx context.Context, from, target, action string) {
 	}
 
 	if err != nil {
-		t.fail(ctx, from, err)
+		t.fail(from, err)
 
 		return
 	}
 
 	t.finish(target, t.text(ctx, target))
+	t.success = actionIsSuccessful(action) || actionIsSuccessful(t.app.flow.Nodes[target].Action)
 }
 
-// fail answers an action that failed at node from. A name that was not a name is
-// asked for again, and any other failure escalates the user to a person.
-func (t *turn) fail(ctx context.Context, from string, err error) {
+func actionIsSuccessful(action string) bool {
+	switch action {
+	case "create_new_lead", "save_user_name", "set_selected_course",
+		"update_lead_interest_beginner", "update_lead_interest_advanced", "save_payment_voucher":
+		return true
+	default:
+		return false
+	}
+}
+
+// fail answers an action that failed at node from. A name that was not a name
+// is asked for again, and any other failure gets a retry prompt.
+func (t *turn) fail(from string, err error) {
 	if errors.Is(err, ErrInvalidName) {
 		t.finish(from, textInvalidName)
 
 		return
 	}
 
-	t.failure = errors.Join(t.failure, err, t.apply(ctx, actionEscalate, from))
-	t.finish(fsm.HelpNode, textActionFailed)
+	// A transient download or action failure is recoverable. Keep the user in
+	// the guided step and make the next valid attempt possible.
+	t.failure = errors.Join(t.failure, err)
+	t.finish(from, textActionRetry)
 }
 
 // enter runs the action of node, unless skip already ran it as the action of
@@ -295,7 +373,7 @@ func (t *turn) enter(ctx context.Context, node, skip string) error {
 
 // apply runs action, which came from node, and logs it when it fails.
 func (t *turn) apply(ctx context.Context, action, node string) error {
-	err := t.app.actions.Apply(ctx, t.chat, action, t.state, t.msg, node)
+	err := t.app.actions.apply(ctx, t.chat, action, t.state, t.msg, node)
 	if err == nil {
 		return nil
 	}
@@ -419,7 +497,23 @@ func (t *turn) render(ctx context.Context, content string) string {
 		name = nameUnknown
 	}
 
-	data := map[string]string{"name": name, "greeting": t.greeting(ctx)}
+	historyHint, err := t.app.store.historyHint(ctx, t.state.UserID)
+	if err != nil {
+		t.log.WarnContext(ctx, "cannot load history hint", "error", err)
+	}
+
+	lastChoice := t.app.choiceLabel(t.state.LastChoice)
+	if lastChoice == "" {
+		lastChoice = "ninguna opción todavía"
+	}
+
+	data := map[string]string{
+		"name":         name,
+		"greeting":     t.greeting(ctx),
+		"persona":      personaName,
+		"last_choice":  lastChoice,
+		"history_hint": historyHint,
+	}
 
 	if course := t.state.SelectedCourseID; course != "" {
 		data["course_name"] = t.app.flow.Nodes[course].Title
@@ -431,6 +525,18 @@ func (t *turn) render(ctx context.Context, content string) string {
 	}
 
 	return render(content, data)
+}
+
+func (a *App) choiceLabel(choice string) string {
+	if choice == "" {
+		return ""
+	}
+
+	if node, ok := a.flow.Nodes[choice]; ok && node.Title != "" {
+		return node.Title
+	}
+
+	return choice
 }
 
 // greeting welcomes a user with little history and welcomes back one with more.
