@@ -1,86 +1,65 @@
 # botkit
 
-botkit is a pair of WhatsApp bots for teams that need a small, self-hosted chat
-workflow. It is written in Go and stores its WhatsApp session and bot state in
-SQLite. The `flow` bot walks people through a JSON conversation. The `latex` bot
-turns a math expression into a PNG.
+botkit is two self-hosted WhatsApp bots written in Go. Each bot keeps its
+WhatsApp session and its data in one SQLite file.
 
-The first working path is the flow bot:
+- **flow** walks everyone who messages it through a conversation that you write
+  as a JSON file.
+- **latex** answers `!latex <equation>` with the equation rendered as a PNG. It
+  serves registered users and groups.
+
+The latex bot needs Linux, `typst`, and `prlimit` from util-linux.
+
+## Install
 
 ```bash
+git clone https://github.com/totallynotdavid/botkit
+cd botkit
 mise install
 mise run build
+```
+
+The build writes `bin/botkit-flow` and `bin/botkit-latex`.
+
+## Try a bot
+
+The offline REPL needs no WhatsApp account. Type a message at `you>`, read the
+reply at `bot>`, and type `:quit` to leave.
+
+```bash
+mise exec -- bin/botkit-flow --repl     # type: hola
+mise exec -- bin/botkit-latex --repl    # type: !latex \frac{a}{b}
+```
+
+The flow bot greets you with its built-in bookshop flow. The latex bot replies
+`bot> [image image/png, ...]` and reacts with ✅.
+
+## Run a bot on WhatsApp
+
+```bash
 mise exec -- bin/botkit-flow pair
 mise exec -- bin/botkit-flow run
 ```
 
-Send the paired account a direct message. With no `FLOW_FILE`, the bot runs the
-built-in bookshop example. Pairing needs a terminal and a WhatsApp account. The
-complete operating procedure is in [docs/operations.md](docs/operations.md).
+`pair` shows a QR code to scan in WhatsApp under Linked devices. `run` answers
+messages until SIGINT or SIGTERM.
 
-## The bots
+## Features
 
-`flow` answers direct messages from anyone. It keeps each conversation in the
-SQLite store and can save payment-voucher images. Start with
-[docs/flow.md](docs/flow.md) when you need to write a flow of your own.
+- Pair with a QR code or a pairing code.
+- Flow: keyword, exact, regex, and media conditions, with typo-tolerant
+  keywords.
+- Flow: per-user state and conversation history in SQLite, payment-voucher
+  images saved to disk, and a flag for users who need a person.
+- Latex: Typst with the Mitex package, under limits on time, memory, file size,
+  and image size.
+- Latex: ranks, owners, and registered groups decide who can run a command.
+- A per-user rate limit and a cap on messages handled at once.
+- Exit status 78 when the WhatsApp session needs the operator, so a service
+  manager can stop restarting the bot.
+- An offline REPL that runs the real bot over an in-memory transport.
 
-`latex` answers `!latex <equation>` in direct chats and registered groups. It
-requires a registered user or owner and renders with Typst and the embedded
-Mitex package. See [docs/latex.md](docs/latex.md) for access and rendering
-limits.
+## More
 
-Both bots share the same WhatsApp session handling, SQLite store, rate limiter,
-configuration, and process lifecycle. The settings are in
-[docs/configuration.md](docs/configuration.md).
-
-## Engaging conversations and offline use
-
-The `latex` redesign follows three useful patterns from working WhatsApp bots:
-
-| Reference                                                                           | What makes it engaging                                                                                     | Applied here                                                                                                          |
-| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| [Jibaru/wspbot](https://github.com/Jibaru/wspbot)                                   | A clear personality, opt-in group behavior, memory, useful media, reactions, and short confirmations.      | `latex` has the authorized Tinta welcome, persisted first-visit state, emoji feedback, and image replies.             |
-| [miftahganzz/bot-wa-go](https://github.com/miftahganzz/bot-wa-go)                   | A discoverable menu, command aliases, modular features, media tools, games, and explicit runtime feedback. | `latex` exposes discoverable help/menu text, command routing, rendering, and success, failure, and refusal reactions. |
-| [avig14/whatsapp-restaurant-bot](https://github.com/avig14/whatsapp-restaurant-bot) | A guided multi-step flow with a cart-like state, confirmation, recovery, and a useful media-rich result.   | Research only here; this change does not claim to redesign `flow`.                                                    |
-
-The shared transport boundary is `bot.Transport`. The WhatsApp implementation is
-only one transport; `whatsapp/fake` is an in-memory transport that records text,
-images, reactions, and downloaded media. That fake drives the full conversation
-tests, so application behavior does not require a WhatsApp login.
-
-Try either bot offline:
-
-```bash
-go run ./cmd/flow --repl
-go run ./cmd/latex --repl
-```
-
-`flow` is included here only because it also gains the shared offline REPL; its
-conversation redesign is outside this change.
-
-Type messages at `you>`. The bot replies at `bot>`, and `:quit` exits. The REPL
-uses the real app, SQLite state, rate limiting, command routing, rendering, and
-fake transport; it does not create a WhatsApp connection or require pairing. The
-user is assigned the first configured non-owner rank by default (`user` for
-`latex`; `flow` configures no non-owner rank); add `--owner` when exercising
-owner commands locally.
-
-### The real-session boundary
-
-Exactly one part still requires a real WhatsApp session: the production
-transport in `internal/whatsapp`, including QR/pairing, socket connection and
-reconnection, WhatsApp event translation, encrypted media upload/download, and
-delivery to an actual phone or group. `pair` and the default `run` command use
-that transport and therefore need a paired account.
-
-We could not test an actual WhatsApp login, server reconnect, device logout or
-replacement, WhatsApp-side delivery/read behavior, or the real CDN encryption
-and media limits in this environment. Those paths are isolated behind
-`bot.Transport`; the app conversations, command routing, rendering, media
-handling through the fake, and offline REPL are tested without them.
-
-## Manual and development
-
-The manual index is [docs/readme.md](docs/readme.md). Contributors should run
-the checks in [docs/development.md](docs/development.md). The package and
-runtime boundaries are in [ARCHITECTURE.md](ARCHITECTURE.md).
+The manual is in [docs/readme.md](docs/readme.md). To change botkit, read
+[.github/contributing.md](.github/contributing.md).
