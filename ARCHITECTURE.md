@@ -90,12 +90,22 @@ The command translates empty input, invalid input, resource limits, and output
 size limits into chat notices. The router adds the command's reaction and
 returns the underlying error to the runtime.
 
+The app owns the `latex_user_state` table. A row is created atomically when an
+authorized user sends a greeting for the first time; later authorized greetings
+leave that row unchanged and use the welcome-back message. The `user_id` primary
+key and `INSERT ... ON CONFLICT DO NOTHING` make the first-visit transition safe
+when concurrent handlers greet the same user: at most one handler observes the
+first visit, and `first_seen` never changes. There is no in-memory copy of this
+state, so all app instances using the database observe the same transition.
+Unauthorized greetings do not read or write this table.
+
 ## Data ownership
 
 ```text
 internal/whatsapp  session tables used by whatsmeow
 internal/auth      users, ranks, registered_groups
 internal/flow      user_state, conversation_history
+internal/latex     latex_user_state
 internal/flow      voucher files named by FLOW_VOUCHER_DIR
 ```
 
