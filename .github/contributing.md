@@ -5,17 +5,9 @@ boundaries. [AGENTS.md](../AGENTS.md) holds the rules every change follows.
 
 ## Set up
 
-botkit uses Go and [mise](https://mise.jdx.dev). `mise install` installs the
-versions pinned in [`mise.toml`](../mise.toml): Go, golangci-lint, Typst, and
-the `sqlite3` CLI. The latex tests also need `prlimit` from util-linux on
-`PATH`.
-
-```bash
-git clone https://github.com/totallynotdavid/botkit
-cd botkit
-mise install
-mise run build
-```
+Follow [Install](../readme.md#install) in the README. The latex tests also need
+`prlimit` from util-linux on `PATH`. `mise run test` uses the race detector,
+which needs a C compiler such as `gcc`.
 
 ## Tasks
 
@@ -35,9 +27,9 @@ Run `mise run ci` before you open a pull request. GitHub Actions runs the build,
 
 ## Tests
 
-Tests do not connect to WhatsApp. They run the real apps over SQLite and the
-in-memory transport in `internal/whatsapp/fake`. The latex tests run the real
-`typst`.
+Tests run the real apps over SQLite and the in-memory transport in
+`internal/whatsapp/fake`, and never connect to WhatsApp. The latex tests run the
+real `typst`.
 
 ## Settings
 
