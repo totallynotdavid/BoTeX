@@ -140,13 +140,13 @@ func TestRoutingOrder(t *testing.T) {
 	}
 
 	tests := []route{
-		text("the first matching transition wins and reports its action", "A", "both", "TEXT_FIRST", "caption_action"),
-		text("a node transition beats a global one", "A", "caption both", "TEXT", ""),
+		text("the global transition wins before local order", "A", "both", "GLOBAL", "global_action"),
+		text("a global transition beats a local one", "A", "caption both", "GLOBAL", "global_action"),
 		text("a global applies when the node has no match", "A", "global", "GLOBAL", "global_action"),
 		text("media conditions never match text", "A", "image", "A", fsm.ActionFallbackResponse),
 		file("media is tried before an earlier caption transition", "A", bot.MediaImage, "caption", "IMAGE", ""),
 		file("a caption transition still applies to other media", "A", bot.MediaAudio, "caption", "TEXT", ""),
-		file("a caption transition keeps its own action", "A", bot.MediaAudio, "both", "TEXT_FIRST", "caption_action"),
+		file("the global transition wins for a media caption", "A", bot.MediaAudio, "both", "GLOBAL", "global_action"),
 		file("the media condition takes any file", "M", bot.MediaSticker, "", "ANY", ""),
 	}
 

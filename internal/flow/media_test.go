@@ -1,4 +1,3 @@
-//nolint:goconst // Node names repeat across cases; literals keep each case readable against its flow.
 package flow_test
 
 import (
@@ -12,6 +11,7 @@ import (
 
 const (
 	wrongMediaFormat = "Parece que enviaste un tipo de archivo incorrecto. Por favor, asegúrate de enviar %s para que pueda procesarlo. Gracias 😊"
+	wantsAnyNode     = "WANTS_ANY"
 
 	askingForFiles = `
 		"START":{"message":{"type":"text","content":"start"}},
@@ -31,11 +31,11 @@ func TestNodeTakesTheMediaItAsksFor(t *testing.T) {
 		kind bot.MediaKind
 	}{
 		{"the kind of media_type", "WANTS_VIDEO", bot.MediaVideo},
-		{"an audio for media", "WANTS_ANY", bot.MediaAudio},
-		{"a sticker for media", "WANTS_ANY", bot.MediaSticker},
-		{"a video for media", "WANTS_ANY", bot.MediaVideo},
-		{"a document for media", "WANTS_ANY", bot.MediaDocument},
-		{"an image for media", "WANTS_ANY", bot.MediaImage},
+		{"an audio for media", wantsAnyNode, bot.MediaAudio},
+		{"a sticker for media", wantsAnyNode, bot.MediaSticker},
+		{"a video for media", wantsAnyNode, bot.MediaVideo},
+		{"a document for media", wantsAnyNode, bot.MediaDocument},
+		{"an image for media", wantsAnyNode, bot.MediaImage},
 	}
 
 	for _, test := range tests {
@@ -99,14 +99,15 @@ func TestWrongMediaReplyNamesEveryKindTheNodeAsksFor(t *testing.T) {
 	}
 }
 
-// Wrong files count like wrong text: the third hands the user to a person.
-func TestThirdWrongFileEscalates(t *testing.T) {
+// Wrong files are recoverable forever; a mistyped attachment never hands the
+// user to a dead end.
+func TestWrongFileKeepsTheUserInTheGuidedStep(t *testing.T) {
 	t.Parallel()
 
 	env := start(t, withFlow(tiny(t, askingForFiles)))
 	env.seed(t, "WANTS_VIDEO")
 
-	for count := 1; count <= 2; count++ {
+	for range 2 {
 		err := env.sendMedia(t, bot.MediaImage, []byte("data"))
 		if err != nil {
 			t.Fatalf("Handle() error = %v", err)
@@ -114,7 +115,6 @@ func TestThirdWrongFileEscalates(t *testing.T) {
 
 		state := env.state(t)
 		requireEqual(t, "CurrentNode", state.CurrentNode, "WANTS_VIDEO")
-		requireEqual(t, "RepromptCount", state.RepromptCount, count)
 		requireEqual(t, "RequiresHumanAgent", state.RequiresHumanAgent, false)
 	}
 
@@ -124,13 +124,12 @@ func TestThirdWrongFileEscalates(t *testing.T) {
 	}
 
 	state := env.state(t)
-	requireEqual(t, "CurrentNode", state.CurrentNode, "NEEDS_ASSISTANCE")
-	requireEqual(t, "RequiresHumanAgent", state.RequiresHumanAgent, true)
-	requireEqual(t, "RepromptCount", state.RepromptCount, 0)
+	requireEqual(t, "CurrentNode", state.CurrentNode, "WANTS_VIDEO")
+	requireEqual(t, "RequiresHumanAgent", state.RequiresHumanAgent, false)
 
 	sent := env.sent()
 	requireEqual(t, "replies", len(sent), 3)
-	requireEqual(t, "last reply", sent[2], "a person will help")
+	requireEqual(t, "last reply", sent[2], fmt.Sprintf(wrongMediaFormat, "un *video*"))
 }
 
 func TestUnsupportedMediaOnANodeTheFlowNoLongerHas(t *testing.T) {
@@ -153,8 +152,8 @@ func TestUnsupportedMediaOnANodeTheFlowNoLongerHas(t *testing.T) {
 		t.Fatalf("Handle() error = %v", err)
 	}
 
-	requireSent(t, env.sent(), env.text("GREETING_INTRO", welcome))
-	requireEqual(t, "CurrentNode", env.state(t).CurrentNode, "GREETING_INTRO")
+	requireSent(t, env.sent(), env.text("WELCOME", welcome))
+	requireEqual(t, "CurrentNode", env.state(t).CurrentNode, "WELCOME")
 }
 
 func TestCourseNameFallsBackWhenTheSelectedNodeHasNoTitle(t *testing.T) {

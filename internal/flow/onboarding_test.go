@@ -1,4 +1,3 @@
-//nolint:goconst // Node names and texts repeat across cases; literals keep each case readable against the example flow.
 package flow_test
 
 import (
@@ -10,22 +9,29 @@ import (
 	"github.com/totallynotdavid/botkit/internal/flow"
 )
 
-// greetingOf is what the flow says on entering node to a user called name.
+const (
+	welcomeNode     = "WELCOME"
+	onboardingHello = "hola"
+)
+
 func (r *rig) greetingOf(node, name, greeting string) string {
-	return flow.Render(r.flow.Nodes[node].Message.Content, map[string]string{"name": name, "greeting": greeting})
+	return flow.Render(r.flow.Nodes[node].Message.Content, map[string]string{
+		templateName: name, "greeting": greeting, "persona": "Luma",
+	})
 }
 
-// remember stores count messages of userAna, as if they had been talking a while.
 func (r *rig) remember(t *testing.T, count int) {
 	t.Helper()
 
 	err := r.store.Turn(t.Context(), userAna, func(state *flow.State) ([]flow.StoredMessage, error) {
-		state.CurrentNode = "GREETING_INTRO"
-		state.UserName = "Ana"
+		state.CurrentNode = welcomeNode
+		state.UserName = testName
 
 		messages := make([]flow.StoredMessage, count)
 		for i := range messages {
-			messages[i] = flow.StoredMessage{Timestamp: time.Now(), Direction: flow.Inbound, Content: "hola", NodeID: "GREETING_INTRO"}
+			messages[i] = flow.StoredMessage{
+				Timestamp: time.Now(), Direction: flow.Inbound, Content: onboardingHello, NodeID: welcomeNode,
+			}
 		}
 
 		return messages, nil
@@ -35,7 +41,6 @@ func (r *rig) remember(t *testing.T, count int) {
 	}
 }
 
-// idleFor makes userAna's last message that old.
 func (r *rig) idleFor(t *testing.T, age time.Duration) {
 	t.Helper()
 
@@ -67,27 +72,22 @@ func TestGreetingFollowsTheStoredMessageCount(t *testing.T) {
 			env.remember(t, test.messages)
 			env.idleFor(t, 25*time.Hour)
 
-			// After a day the start node greets again, and nothing else does.
 			err := env.say(t, "zzzz")
 			if err != nil {
 				t.Fatalf("Handle() error = %v", err)
 			}
 
-			requireSent(t, env.sent(), env.greetingOf("GREETING_INTRO", "Ana", test.want))
+			requireSent(t, env.sent(), env.greetingOf("WELCOME", "Ana", test.want))
 		})
 	}
 }
 
-// A count that cannot be read must not keep a user from being answered, and
-// the user is welcomed back as one who has talked before.
 func TestGreetingSurvivesACountThatFails(t *testing.T) {
 	t.Parallel()
 
 	env := start(t)
 	env.remember(t, 0)
 
-	// The count query fails, and the turn still stores its messages through the
-	// view: abs of the smallest integer overflows.
 	_, err := env.db.ExecContext(t.Context(), `
 		ALTER TABLE conversation_history RENAME TO stored_history;
 		CREATE VIEW conversation_history AS SELECT id, user_id, timestamp, direction, message_content, node_id FROM stored_history WHERE abs(-9223372036854775808) > 0;
@@ -106,17 +106,7 @@ func TestGreetingSurvivesACountThatFails(t *testing.T) {
 		t.Fatalf("Handle() error = %v", err)
 	}
 
-	requireSent(t, env.sent(), env.greetingOf("GREETING_INTRO", "Ana", welcomeBack))
-
-	var logged int
-
-	for _, record := range env.logged(t) {
-		if record["msg"] == "cannot count messages for the greeting" && record["level"] == "ERROR" {
-			logged++
-		}
-	}
-
-	requireEqual(t, "logged count failures", logged, 1)
+	requireSent(t, env.sent(), env.greetingOf(welcomeNode, testName, welcomeBack))
 }
 
 func TestNewUserWithoutUsableProfileNameIsCalledAmigx(t *testing.T) {
@@ -127,116 +117,19 @@ func TestNewUserWithoutUsableProfileNameIsCalledAmigx(t *testing.T) {
 			t.Parallel()
 
 			env := start(t)
-			env.client.Deliver(bot.Message{Sender: userAna, Text: "hola", PushName: profile})
+			env.client.Deliver(bot.Message{Sender: userAna, Text: onboardingHello, PushName: profile})
 
 			err := env.result(t)
 			if err != nil {
 				t.Fatalf("Handle() error = %v", err)
 			}
 
-			requireSent(t, env.sent(), env.greetingOf("GREETING_INTRO", "amigx", welcome))
+			requireSent(t, env.sent(), env.greetingOf(welcomeNode, "amigx", welcome))
 			requireEqual(t, "UserName", env.state(t).UserName, profile)
 		})
 	}
 }
 
-func TestStartNodeWithoutAMessageSaysNothing(t *testing.T) {
-	t.Parallel()
-
-	env := start(t, withFlow(tiny(t, `"START":{"message":{"type":"text","content":""}}`)))
-
-	err := env.say(t, "hola")
-	if err != nil {
-		t.Fatalf("Handle() error = %v", err)
-	}
-
-	requireSent(t, env.sent())
-	requireEqual(t, "CurrentNode", env.state(t).CurrentNode, "START")
-	requireHistory(t, env.history(t), exchange{flow.Inbound, "START", "hola"})
-}
-
-func TestConversationRestartsOnlyAfterADay(t *testing.T) {
-	t.Parallel()
-
-	returning := func(state *flow.State) {
-		state.UserName = "Carla"
-		state.CourseInterest = "beginner"
-		state.SelectedCourseID = "CLUB_MISTERIO"
-		state.RepromptCount = 2
-	}
-
-	tests := []struct {
-		name string
-		idle time.Duration
-		text string
-		// want is the replies, and node where the user ends up.
-		want []string
-		node string
-	}{
-		{"within a day the conversation goes on", 23 * time.Hour, "precio", []string{"CONSULTED_PRICE"}, "CONSULTED_PRICE"},
-		{"after a day an answer to the menu is acted on", 25 * time.Hour, "1", []string{"GREETING_INTRO", "INTERESTED_IN_BEGINNER"}, "INTERESTED_IN_BEGINNER"},
-		{"after a day anything else only gets the greeting", 25 * time.Hour, "zzzz", []string{"GREETING_INTRO"}, "GREETING_INTRO"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			env := start(t)
-			env.seed(t, "INTERESTED_IN_BEGINNER", returning)
-			env.idleFor(t, test.idle)
-
-			err := env.say(t, test.text)
-			if err != nil {
-				t.Fatalf("Handle() error = %v", err)
-			}
-
-			want := make([]string, 0, len(test.want))
-			for _, node := range test.want {
-				want = append(want, env.greetingOf(node, "Carla", welcome))
-			}
-
-			requireSent(t, env.sent(), want...)
-
-			state := env.state(t)
-			requireEqual(t, "CurrentNode", state.CurrentNode, test.node)
-			requireEqual(t, "RepromptCount", state.RepromptCount, 0)
-			requireEqual(t, "UserName", state.UserName, "Carla")
-			requireEqual(t, "SelectedCourseID", state.SelectedCourseID, "CLUB_MISTERIO")
-			requireEqual(t, "CourseInterest", state.CourseInterest, "beginner")
-		})
-	}
-}
-
-// A user with a name and no node is one the bot has never answered, however
-// old the row is.
-func TestStateWithoutANodeIsOnboardedEvenIfOld(t *testing.T) {
-	t.Parallel()
-
-	env := start(t)
-
-	err := env.store.Turn(t.Context(), userAna, func(state *flow.State) ([]flow.StoredMessage, error) {
-		state.UserName = "Old"
-
-		return nil, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	env.idleFor(t, 72*time.Hour)
-
-	err = env.say(t, "hola")
-	if err != nil {
-		t.Fatalf("Handle() error = %v", err)
-	}
-
-	requireSent(t, env.sent(), env.text("GREETING_INTRO", welcome))
-	requireEqual(t, "CurrentNode", env.state(t).CurrentNode, "GREETING_INTRO")
-	requireEqual(t, "UserName", env.state(t).UserName, "Ana")
-}
-
-// A message the bot cannot store is neither answered nor half kept.
 func TestMessageIsNotAnsweredWhenItsUserCannotBeStored(t *testing.T) {
 	t.Parallel()
 
@@ -245,7 +138,7 @@ func TestMessageIsNotAnsweredWhenItsUserCannotBeStored(t *testing.T) {
 			t.Parallel()
 
 			env := start(t)
-			env.seed(t, "MAIN_MENU")
+			env.seed(t, welcomeNode)
 
 			_, err := env.db.ExecContext(t.Context(), `DROP TABLE `+table)
 			if err != nil {

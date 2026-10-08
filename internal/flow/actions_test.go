@@ -401,17 +401,17 @@ func node(action string) string {
 	return `{"message":{"type":"text","content":"x"},"action":"` + action + `"}`
 }
 
-func TestCheckAcceptsTheExampleFlow(t *testing.T) {
+func TestCheckAcceptsTheEngagingFlow(t *testing.T) {
 	t.Parallel()
 
-	example, err := fsm.Example()
+	engaging, err := fsm.EngagingExample()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = flow.NewActions(t.TempDir()).Check(example)
+	err = flow.NewActions(t.TempDir()).Check(engaging)
 	if err != nil {
-		t.Errorf("Check(example) = %v, want none", err)
+		t.Errorf("Check(engaging) = %v, want none", err)
 	}
 }
 

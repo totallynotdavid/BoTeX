@@ -142,16 +142,16 @@ func TestParseMergesGroupsPerNode(t *testing.T) {
 	}
 }
 
-func TestExampleParses(t *testing.T) {
+func TestEngagingFlowParses(t *testing.T) {
 	t.Parallel()
 
-	flow, err := fsm.Example()
+	flow, err := fsm.EngagingExample()
 	if err != nil {
-		t.Fatalf("Example() = %v", err)
+		t.Fatalf("EngagingExample() = %v", err)
 	}
 
-	if flow.StartNode != "GREETING_INTRO" {
-		t.Errorf("start node = %q, want GREETING_INTRO", flow.StartNode)
+	if flow.StartNode != "WELCOME" {
+		t.Errorf("start node = %q, want WELCOME", flow.StartNode)
 	}
 }
 

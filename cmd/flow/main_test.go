@@ -26,8 +26,8 @@ const (
 	bob   bot.JID = "51900000002@s.whatsapp.net"
 	group bot.JID = "120363000000000000@g.us"
 
-	// greeting is what the example flow's first node says to a new user.
-	greeting = "¡Bienvenidx! Es un placer ayudarte a empezar. 👋 Soy el asistente de *Librería Página Nueva*."
+	// greeting is the stable opening shared by the built-in flow.
+	greeting = "¡Bienvenidx! Es un placer ayudarte a empezar."
 
 	typoFlow = `{"start_node":"A","nodes":{` +
 		`"A":{"message":{"type":"text","content":"hi"},"action":"launch_rocket"},` +

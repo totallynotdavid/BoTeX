@@ -7,7 +7,7 @@ import (
 	"github.com/totallynotdavid/botkit/internal/flow/fsm"
 )
 
-// The example flow has one global list and few nodes that ignore it, so the
+// This focused flow has one global list and a node that ignores it, so the
 // rules between globals, node transitions and media get their own flow.
 func TestGlobalsAndMedia(t *testing.T) {
 	t.Parallel()
@@ -34,7 +34,7 @@ func TestGlobalsAndMedia(t *testing.T) {
 	}
 
 	runRoutes(t, flow, []route{
-		text("a node transition beats a global", "OPEN", "local", "LOCAL", ""),
+		text("a global transition beats a node transition", "OPEN", "local", "GLOBAL", ""),
 		text("the first global wins", "OPEN", "both", "GLOBAL", "first_global"),
 		text("the help global on an open node", "OPEN", "help", "NEEDS_ASSISTANCE", "help_action"),
 		text("a closed node skips the other globals", "CLOSED", "both", "CLOSED", fallback),

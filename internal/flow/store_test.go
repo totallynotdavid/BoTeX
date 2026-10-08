@@ -3,6 +3,7 @@ package flow_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -96,7 +97,6 @@ func TestTurnSavesTheState(t *testing.T) {
 		ConsultedPrice:     true,
 		VoucherPath:        "/vouchers/a.jpeg",
 		RequiresHumanAgent: true,
-		RepromptCount:      2,
 	}
 
 	before := time.Now()
@@ -410,8 +410,6 @@ func TestConcurrentTurnsOfOneUserAllLand(t *testing.T) {
 				// Yield between the read and the write, where a lost update would happen.
 				time.Sleep(time.Millisecond)
 
-				state.RepromptCount++
-
 				return []flow.StoredMessage{inbound("hola")}, nil
 			})
 			if err != nil {
@@ -421,15 +419,6 @@ func TestConcurrentTurnsOfOneUserAllLand(t *testing.T) {
 	}
 
 	group.Wait()
-
-	got, err := store.Load(t.Context(), userAna)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if got.RepromptCount != turns {
-		t.Errorf("RepromptCount = %d, want %d: a turn was lost", got.RepromptCount, turns)
-	}
 
 	assertStored(t, store, userAna, "", turns)
 
@@ -598,5 +587,82 @@ func TestNewStoreKeepsWhatIsStored(t *testing.T) {
 	got, err := second.Load(t.Context(), userAna)
 	if err != nil || got.CurrentNode != "MENU" {
 		t.Errorf("Load() = %+v, %v; want the state saved before", got, err)
+	}
+}
+
+func preRedesignDatabase(t *testing.T) *sql.DB {
+	t.Helper()
+
+	database, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "flow.db"), sqlite.WithoutSync())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		closeErr := database.Close()
+		if closeErr != nil {
+			t.Errorf("close database: %v", closeErr)
+		}
+	})
+
+	_, err = database.ExecContext(t.Context(), `
+		CREATE TABLE user_state (
+			user_id TEXT PRIMARY KEY,
+			current_node TEXT NOT NULL DEFAULT '',
+			user_name TEXT NOT NULL DEFAULT '',
+			course_interest TEXT NOT NULL DEFAULT '',
+			selected_course_id TEXT NOT NULL DEFAULT '',
+			consulted_price BOOLEAN NOT NULL DEFAULT FALSE,
+			voucher_path TEXT NOT NULL DEFAULT '',
+			requires_human_agent BOOLEAN NOT NULL DEFAULT FALSE,
+			reprompt_count INTEGER NOT NULL DEFAULT 0,
+			last_updated DATETIME NOT NULL
+		);
+		CREATE TABLE conversation_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id TEXT NOT NULL,
+			timestamp DATETIME NOT NULL,
+			direction TEXT NOT NULL,
+			message_content TEXT,
+			node_id TEXT
+		);
+		INSERT INTO user_state (user_id, current_node, user_name, reprompt_count, last_updated)
+		VALUES ('51900000001@s.whatsapp.net', 'WELCOME', 'Ana', 3, '2026-01-01T00:00:00Z');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return database
+}
+
+func TestNewStoreMigratesThePreRedesignStateSchema(t *testing.T) {
+	t.Parallel()
+
+	database := preRedesignDatabase(t)
+
+	store, err := flow.NewStore(t.Context(), database)
+	if err != nil {
+		t.Fatalf("NewStore() migration error = %v", err)
+	}
+
+	var repromptColumns int
+
+	err = database.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM pragma_table_info('user_state') WHERE name = 'reprompt_count'`).Scan(&repromptColumns)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if repromptColumns != 0 {
+		t.Fatal("pre-redesign reprompt_count column remains after migration")
+	}
+
+	state, err := store.Load(t.Context(), userAna)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if state.CurrentNode != "WELCOME" || state.UserName != "Ana" || state.FollowUpOptIn {
+		t.Errorf("migrated state = %+v, want old fields retained and new consent disabled", state)
 	}
 }
