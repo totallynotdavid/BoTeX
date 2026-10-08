@@ -12,7 +12,7 @@ run the source tree instead of the binary. A binary started without mise does
 not read `.env`; see [configuration](configuration.md).
 
 The latex bot runs `typst` and `prlimit` from `PATH`. `mise install` provides
-`typst`. Install `prlimit` with the operating system's util-linux package.
+`typst`; the [README](../readme.md#install) lists what else the bot needs.
 
 Run one process for each `BOTKIT_STORE_PATH`. The flow bot's per-user lock lives
 in the process, and WhatsApp ends a session that a second process connects with
@@ -27,6 +27,16 @@ disconnect.
 Logs are text records on stderr. `BOTKIT_LOG_LEVEL` sets their level.
 
 ## Service manager
+
+Install the binary where the unit expects it. Then [pair](pairing.md) as the
+service user, from `WorkingDirectory` and with the unit's environment file, so
+the session lands in the database that the service opens. The shell inside the
+quotes loads the file, because `sudo` does not pass your environment on:
+
+```bash
+sudo install -m 0755 bin/botkit-latex /usr/local/bin/botkit-latex
+sudo -u botkit sh -c 'cd /var/lib/botkit && set -a && . /etc/botkit/latex.env && exec botkit-latex pair'
+```
 
 This systemd unit runs the latex bot from a dedicated directory:
 
