@@ -3,7 +3,6 @@ package flow_test
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -174,8 +173,9 @@ func TestNextTurnSeesTheSavedState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got.CurrentNode != "MENU" || got.UserName != "" || got.RequiresHumanAgent {
-		t.Errorf("Load() = %+v, want the second turn's state alone", got)
+	// A turn cannot lower the hand-off flag, so the first turn's stays.
+	if got.CurrentNode != "MENU" || got.UserName != "" || !got.RequiresHumanAgent {
+		t.Errorf("Load() = %+v, want the second turn's state and the first turn's hand-off", got)
 	}
 }
 
@@ -590,79 +590,211 @@ func TestNewStoreKeepsWhatIsStored(t *testing.T) {
 	}
 }
 
-func preRedesignDatabase(t *testing.T) *sql.DB {
+func handOff(t *testing.T, store *flow.Store, user bot.JID, node, name string, messages ...flow.StoredMessage) {
 	t.Helper()
 
-	database, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "flow.db"), sqlite.WithoutSync())
-	if err != nil {
-		t.Fatal(err)
-	}
+	err := store.Turn(t.Context(), user, func(state *flow.State) ([]flow.StoredMessage, error) {
+		state.CurrentNode = node
+		state.UserName = name
+		state.RequiresHumanAgent = true
 
-	t.Cleanup(func() {
-		closeErr := database.Close()
-		if closeErr != nil {
-			t.Errorf("close database: %v", closeErr)
-		}
+		return messages, nil
 	})
-
-	_, err = database.ExecContext(t.Context(), `
-		CREATE TABLE user_state (
-			user_id TEXT PRIMARY KEY,
-			current_node TEXT NOT NULL DEFAULT '',
-			user_name TEXT NOT NULL DEFAULT '',
-			course_interest TEXT NOT NULL DEFAULT '',
-			selected_course_id TEXT NOT NULL DEFAULT '',
-			consulted_price BOOLEAN NOT NULL DEFAULT FALSE,
-			voucher_path TEXT NOT NULL DEFAULT '',
-			requires_human_agent BOOLEAN NOT NULL DEFAULT FALSE,
-			reprompt_count INTEGER NOT NULL DEFAULT 0,
-			last_updated DATETIME NOT NULL
-		);
-		CREATE TABLE conversation_history (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id TEXT NOT NULL,
-			timestamp DATETIME NOT NULL,
-			direction TEXT NOT NULL,
-			message_content TEXT,
-			node_id TEXT
-		);
-		INSERT INTO user_state (user_id, current_node, user_name, reprompt_count, last_updated)
-		VALUES ('51900000001@s.whatsapp.net', 'WELCOME', 'Ana', 3, '2026-01-01T00:00:00Z');
-	`)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	return database
 }
 
-func TestNewStoreMigratesThePreRedesignStateSchema(t *testing.T) {
+func TestHandoffsListsWaitingUsersLongestWaitFirst(t *testing.T) {
 	t.Parallel()
 
-	database := preRedesignDatabase(t)
+	store := newStore(t)
 
-	store, err := flow.NewStore(t.Context(), database)
-	if err != nil {
-		t.Fatalf("NewStore() migration error = %v", err)
-	}
+	handOff(t, store, userLuis, "NEEDS_ASSISTANCE", "Luis", inbound("quiero hablar con alguien"))
+	handOff(t, store, userAna, "PAYMENT", "Ana", inbound("mi pago no pasa"))
 
-	var repromptColumns int
-
-	err = database.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM pragma_table_info('user_state') WHERE name = 'reprompt_count'`).Scan(&repromptColumns)
+	err := moveTo(t, store, "51900000003@s.whatsapp.net", "MENU", inbound("hola"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if repromptColumns != 0 {
-		t.Fatal("pre-redesign reprompt_count column remains after migration")
-	}
-
-	state, err := store.Load(t.Context(), userAna)
+	got, err := store.Handoffs(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if state.CurrentNode != "WELCOME" || state.UserName != "Ana" || state.FollowUpOptIn {
-		t.Errorf("migrated state = %+v, want old fields retained and new consent disabled", state)
+	if len(got) != 2 {
+		t.Fatalf("Handoffs() = %+v, want the two users handed to a person", got)
+	}
+
+	want := []flow.Handoff{
+		{User: userLuis, Name: "Luis", Node: "NEEDS_ASSISTANCE", LastMessage: "quiero hablar con alguien"},
+		{User: userAna, Name: "Ana", Node: "PAYMENT", LastMessage: "mi pago no pasa"},
+	}
+
+	for idx := range want {
+		got[idx].Since = time.Time{}
+
+		if got[idx] != want[idx] {
+			t.Errorf("Handoffs()[%d] = %+v, want %+v", idx, got[idx], want[idx])
+		}
+	}
+}
+
+func requireSameApartFromFlag(t *testing.T, after, before *flow.State) {
+	t.Helper()
+
+	if after.CurrentNode != before.CurrentNode || after.UserName != before.UserName || !after.LastUpdated.Equal(before.LastUpdated) {
+		t.Errorf("state after = %+v, want it as before %+v apart from the flag", after, before)
+	}
+}
+
+func TestClearHandoffReleasesOnlyThatUser(t *testing.T) {
+	t.Parallel()
+
+	store := newStore(t)
+
+	handOff(t, store, userAna, "PAYMENT", "Ana", inbound("mi pago no pasa"))
+	handOff(t, store, userLuis, "NEEDS_ASSISTANCE", "Luis")
+
+	before, err := store.Load(t.Context(), userAna)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = store.ClearHandoff(t.Context(), userAna)
+	if err != nil {
+		t.Fatalf("ClearHandoff() = %v", err)
+	}
+
+	after, err := store.Load(t.Context(), userAna)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if after.RequiresHumanAgent {
+		t.Error("RequiresHumanAgent = true after ClearHandoff")
+	}
+
+	requireSameApartFromFlag(t, after, before)
+
+	waiting, err := store.Handoffs(t.Context())
+	if err != nil || len(waiting) != 1 || waiting[0].User != userLuis {
+		t.Errorf("Handoffs() = %+v, %v; want only Luis", waiting, err)
+	}
+}
+
+func TestClearHandoffRefusesAUserWhoIsNotWaiting(t *testing.T) {
+	t.Parallel()
+
+	store := newStore(t)
+
+	handOff(t, store, userAna, "PAYMENT", "Ana")
+
+	err := store.ClearHandoff(t.Context(), userAna)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, user := range map[string]bot.JID{"cleared already": userAna, "never seen": "51900000099@s.whatsapp.net"} {
+		err = store.ClearHandoff(t.Context(), user)
+		if !errors.Is(err, flow.ErrNoHandoff) {
+			t.Errorf("ClearHandoff() of a user %s = %v, want %v", name, err, flow.ErrNoHandoff)
+		}
+	}
+}
+
+// ClearHandoff runs in another process, outside the per-user lock. A turn that
+// loaded the flag as true must not save it back.
+func TestClearHandoffDuringATurnHolds(t *testing.T) {
+	t.Parallel()
+
+	store := newStore(t)
+
+	handOff(t, store, userAna, "PAYMENT", "Ana")
+
+	err := store.Turn(t.Context(), userAna, func(state *flow.State) ([]flow.StoredMessage, error) {
+		clearErr := store.ClearHandoff(t.Context(), userAna)
+		if clearErr != nil {
+			t.Error(clearErr)
+		}
+
+		state.CurrentNode = "MENU"
+
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.Load(t.Context(), userAna)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got.RequiresHumanAgent || got.CurrentNode != "MENU" {
+		t.Errorf("Load() = %+v, want the turn saved and the hand-off still cleared", got)
+	}
+}
+
+func TestEscalatingAgainAfterAClearWaitsAgain(t *testing.T) {
+	t.Parallel()
+
+	store := newStore(t)
+
+	handOff(t, store, userAna, "PAYMENT", "Ana")
+
+	err := store.ClearHandoff(t.Context(), userAna)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handOff(t, store, userAna, "PAYMENT", "Ana")
+
+	waiting, err := store.Handoffs(t.Context())
+	if err != nil || len(waiting) != 1 || waiting[0].User != userAna {
+		t.Errorf("Handoffs() = %+v, %v; want Ana waiting again", waiting, err)
+	}
+}
+
+func TestFollowUpClaimLeavesTheHandoff(t *testing.T) {
+	t.Parallel()
+
+	store := newStore(t)
+
+	err := store.Turn(t.Context(), userAna, func(state *flow.State) ([]flow.StoredMessage, error) {
+		state.CurrentNode = "PAYMENT"
+		state.FollowUpOptIn = true
+		state.RequiresHumanAgent = true
+
+		return nil, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	claimed, err := store.ClaimFollowUps(t.Context(), time.Now(), time.Hour)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimFollowUps() = %+v, %v; want Ana's claim", claimed, err)
+	}
+
+	waiting, err := store.Handoffs(t.Context())
+	if err != nil || len(waiting) != 1 {
+		t.Errorf("Handoffs() = %+v, %v; want Ana still waiting", waiting, err)
+	}
+
+	err = store.ClearHandoff(t.Context(), userAna)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = store.ReleaseFollowUp(t.Context(), userAna, claimed[0].ClaimedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	waiting, err = store.Handoffs(t.Context())
+	if err != nil || len(waiting) != 0 {
+		t.Errorf("Handoffs() = %+v, %v; want none after a release that follows a clear", waiting, err)
 	}
 }

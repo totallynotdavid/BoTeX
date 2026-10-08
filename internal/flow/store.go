@@ -64,7 +64,7 @@ const (
 			last_follow_up = excluded.last_follow_up,
 			consulted_price = excluded.consulted_price,
 			voucher_path = excluded.voucher_path,
-			requires_human_agent = excluded.requires_human_agent,
+			requires_human_agent = requires_human_agent OR excluded.requires_human_agent,
 			last_updated = excluded.last_updated
 	`
 
@@ -87,6 +87,12 @@ type FollowUp struct {
 // SQLite database. It is the only writer of both tables. Inbound turns use
 // Turn; the follow-up scheduler uses state-only claims/releases and a
 // history-only append.
+//
+// requires_human_agent has one writer in each direction. A turn can set it,
+// by leaving State.RequiresHumanAgent true when it began false, and only
+// ClearHandoff clears it. ClearHandoff may run in another process, outside the
+// per-user lock, so no save may write the flag back as false or restore a value
+// it loaded: a save writes the flag only to raise it.
 type Store struct {
 	db *sql.DB
 
@@ -111,43 +117,6 @@ func NewStore(ctx context.Context, database *sql.DB) (*Store, error) {
 		return nil, fmt.Errorf("exec schema: %w", err)
 	}
 
-	// Existing installations were created before memory and follow-up consent
-	// became part of flow state. SQLite has no portable IF NOT EXISTS form for
-	// ADD COLUMN, so inspect the table before applying each small migration.
-	for name, definition := range map[string]string{
-		"last_choice":      "TEXT NOT NULL DEFAULT ''",
-		"follow_up_opt_in": "BOOLEAN NOT NULL DEFAULT FALSE",
-		"last_follow_up":   "DATETIME",
-	} {
-		var present int
-
-		err = database.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('user_state') WHERE name = ?`, name).Scan(&present)
-		if err != nil {
-			return nil, fmt.Errorf("check flow column %s: %w", name, err)
-		}
-
-		if present == 0 {
-			_, err = database.ExecContext(ctx, "ALTER TABLE user_state ADD COLUMN "+name+" "+definition)
-			if err != nil {
-				return nil, fmt.Errorf("add flow column %s: %w", name, err)
-			}
-		}
-	}
-
-	var hasRepromptCount int
-
-	err = database.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('user_state') WHERE name = 'reprompt_count'`).Scan(&hasRepromptCount)
-	if err != nil {
-		return nil, fmt.Errorf("check obsolete flow column reprompt_count: %w", err)
-	}
-
-	if hasRepromptCount != 0 {
-		_, err = database.ExecContext(ctx, `ALTER TABLE user_state DROP COLUMN reprompt_count`)
-		if err != nil {
-			return nil, fmt.Errorf("drop obsolete flow column reprompt_count: %w", err)
-		}
-	}
-
 	return &Store{db: database, locks: make(map[bot.JID]*userLock)}, nil
 }
 
@@ -160,8 +129,12 @@ func NewStore(ctx context.Context, database *sql.DB) (*Store, error) {
 // Turns of one user run one at a time, in the order they get the lock. Replies
 // sent after Turn returns are not ordered, because the lock is already
 // released. Turns of different users run in parallel. The lock is in this
-// process: two processes on one database are not supported. turn must not
-// start a turn of the same user.
+// process: two processes running the bot on one database are not supported.
+// turn must not start a turn of the same user.
+//
+// A turn raises RequiresHumanAgent by setting it. It cannot lower it. A
+// State.RequiresHumanAgent that was true when turn began is not saved again,
+// so a ClearHandoff that lands during the turn holds.
 func (s *Store) Turn(ctx context.Context, user bot.JID, turn func(state *State) ([]StoredMessage, error)) error {
 	lock, err := s.acquire(ctx, user)
 	if err != nil {
@@ -175,12 +148,94 @@ func (s *Store) Turn(ctx context.Context, user bot.JID, turn func(state *State) 
 		return err
 	}
 
+	waiting := state.RequiresHumanAgent
+
 	messages, err := turn(state)
 	if err != nil {
 		return fmt.Errorf("turn of %s: %w", user, err)
 	}
 
-	return s.saveInbound(ctx, user, state, messages)
+	return s.saveInbound(ctx, user, state, messages, state.RequiresHumanAgent && !waiting)
+}
+
+// Handoff is a user the flow handed to a person: the flow set
+// RequiresHumanAgent and nobody has cleared it.
+type Handoff struct {
+	User bot.JID
+	// Name is the name the user gave or their profile name, or empty.
+	Name string
+	// Node is where the conversation stands.
+	Node string
+	// Since is when the user last wrote.
+	Since time.Time
+	// LastMessage is the start of what the user last wrote, or empty.
+	LastMessage string
+}
+
+// ErrNoHandoff is returned by ClearHandoff for a user who is not waiting for a
+// person.
+var ErrNoHandoff = errors.New("no hand-off for this user")
+
+// Handoffs lists the users waiting for a person, the longest wait first.
+func (s *Store) Handoffs(ctx context.Context) (handoffs []Handoff, returnErr error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT user_id, user_name, current_node, last_updated
+		FROM user_state WHERE requires_human_agent ORDER BY last_updated, user_id`)
+	if err != nil {
+		return nil, fmt.Errorf("list hand-offs: %w", err)
+	}
+	defer func() { returnErr = errors.Join(returnErr, rows.Close()) }()
+
+	for rows.Next() {
+		var handoff Handoff
+
+		err = rows.Scan(&handoff.User, &handoff.Name, &handoff.Node, &handoff.Since)
+		if err != nil {
+			return nil, fmt.Errorf("scan hand-off: %w", err)
+		}
+
+		handoffs = append(handoffs, handoff)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("read hand-offs: %w", err)
+	}
+
+	// The rows are closed before the history is read, so a one-connection
+	// database does not wait on itself.
+	for idx := range handoffs {
+		handoffs[idx].LastMessage, err = s.historyHint(ctx, handoffs[idx].User)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return handoffs, nil
+}
+
+// ClearHandoff records that a person has taken over user, so the user leaves
+// Handoffs. It changes nothing else, LastUpdated included, and is one
+// statement, so it is safe beside a running bot, even from another process: a
+// turn in flight cannot write the flag back. Only a later escalation by the
+// flow sets it again. It returns ErrNoHandoff for a user who is not waiting.
+func (s *Store) ClearHandoff(ctx context.Context, user bot.JID) error {
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE user_state SET requires_human_agent = FALSE WHERE user_id = ? AND requires_human_agent`, user)
+	if err != nil {
+		return fmt.Errorf("clear hand-off of %s: %w", user, err)
+	}
+
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("clear hand-off of %s: %w", user, err)
+	}
+
+	if changed == 0 {
+		return fmt.Errorf("%w: %s", ErrNoHandoff, user)
+	}
+
+	return nil
 }
 
 // MessageCount returns how many messages, sent and received, user's history
@@ -455,10 +510,12 @@ func (s *Store) releaseClaims(claimed []FollowUp, ctx context.Context) error {
 }
 
 // saveInbound commits an inbound turn and its history atomically. It updates
-// LastUpdated only after the transaction succeeds.
-func (s *Store) saveInbound(ctx context.Context, user bot.JID, state *State, messages []StoredMessage) error {
+// LastUpdated only after the transaction succeeds. escalated is whether the
+// turn raised RequiresHumanAgent. Only then is the flag written.
+func (s *Store) saveInbound(ctx context.Context, user bot.JID, state *State, messages []StoredMessage, escalated bool) error {
 	saved := *state
 	saved.LastUpdated = time.Now().UTC()
+	saved.RequiresHumanAgent = escalated
 
 	err := s.save(ctx, user, &saved, messages)
 	if err != nil {
@@ -470,13 +527,18 @@ func (s *Store) saveInbound(ctx context.Context, user bot.JID, state *State, mes
 	return nil
 }
 
-// saveScheduler commits scheduler-owned state without changing LastUpdated.
+// saveScheduler commits scheduler-owned state without changing LastUpdated or
+// RequiresHumanAgent.
 func (s *Store) saveScheduler(ctx context.Context, user bot.JID, state *State) error {
-	return s.save(ctx, user, state, nil)
+	saved := *state
+	saved.RequiresHumanAgent = false
+
+	return s.save(ctx, user, &saved, nil)
 }
 
 // save stores state and messages in one transaction: either all of them are
-// stored or none is.
+// stored or none is. A true state.RequiresHumanAgent raises the stored flag. A
+// false one leaves it as it is.
 func (s *Store) save(ctx context.Context, user bot.JID, state *State, messages []StoredMessage) error {
 	txn, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

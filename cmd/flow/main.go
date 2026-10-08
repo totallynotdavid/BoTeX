@@ -4,6 +4,9 @@
 //	flow [run]           run the bot
 //	flow pair [--phone +<digits>]
 //	                     link the bot to a WhatsApp account
+//	flow handoff list | clear <jid>
+//	                     show the users waiting for a person, or record that
+//	                     a person took one over
 //
 // Its exit statuses are those of package cli. It answers direct messages only.
 package main
@@ -27,9 +30,10 @@ func main() {
 
 func botCommand() cli.Command {
 	return cli.Command{
-		Name:      "flow",
-		RateLimit: flow.DefaultRateLimit(),
-		Configure: configure,
+		Name:        "flow",
+		RateLimit:   flow.DefaultRateLimit(),
+		Subcommands: []cli.Subcommand{handoffSubcommand()},
+		Configure:   configure,
 	}
 }
 
@@ -37,7 +41,9 @@ func configure(env *config.Env) cli.Build {
 	cfg := flow.ConfigFromEnv(env)
 
 	return func(ctx context.Context, database *sql.DB, _ *auth.Service, log *slog.Logger) (cli.Built, error) {
-		definition, err := load(cfg.File)
+		actions := flow.NewActions(cfg.VoucherDir)
+
+		definition, err := load(cfg.File, actions)
 		if err != nil {
 			return cli.Built{}, err
 		}
@@ -47,21 +53,16 @@ func configure(env *config.Env) cli.Build {
 			return cli.Built{}, fmt.Errorf("set up flow store: %w", err)
 		}
 
-		app, err := flow.New(definition, store, flow.NewActions(cfg.VoucherDir), cfg, log)
-		if err != nil {
-			return cli.Built{}, fmt.Errorf("set up flow: %w", err)
-		}
-
-		return cli.Built{App: app}, nil
+		return cli.Built{App: flow.New(definition, store, actions, cfg, log)}, nil
 	}
 }
 
 // load reads the flow file at path, or returns the selected built-in flow when
 // path is empty. A path that cannot be loaded is an error, so a typo in
 // FLOW_FILE never serves a built-in flow to real users.
-func load(path string) (*fsm.Flow, error) {
+func load(path string, actions *flow.Actions) (*fsm.Flow, error) {
 	if path == "" {
-		definition, err := fsm.EngagingExample()
+		definition, err := fsm.EngagingExample(actions.Knows)
 		if err != nil {
 			return nil, fmt.Errorf("load built-in flow: %w", err)
 		}
@@ -69,7 +70,7 @@ func load(path string) (*fsm.Flow, error) {
 		return definition, nil
 	}
 
-	definition, err := fsm.Load(path)
+	definition, err := fsm.Load(path, actions.Knows)
 	if err != nil {
 		return nil, fmt.Errorf("load %s %q: %w", flow.KeyFile, path, err)
 	}
