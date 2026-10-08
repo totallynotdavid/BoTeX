@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -143,6 +144,39 @@ func TestOpenMissingDirFails(t *testing.T) {
 	_, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "missing", "bot.db"))
 	if err == nil {
 		t.Fatal("Open succeeded in a directory that does not exist")
+	}
+}
+
+func TestOpenExistingOpensOnlyAStoreThatExists(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "bot.db")
+
+	_, err := sqlite.OpenExisting(t.Context(), path)
+	if !errors.Is(err, sqlite.ErrNoStore) {
+		t.Fatalf("OpenExisting() of a missing file = %v, want %v", err, sqlite.ErrNoStore)
+	}
+
+	_, err = os.Stat(path)
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("OpenExisting() created the file: Stat() = %v", err)
+	}
+
+	open(t, path)
+
+	database, err := sqlite.OpenExisting(t.Context(), path)
+	if err != nil {
+		t.Fatalf("OpenExisting() of an existing file = %v", err)
+	}
+
+	err = database.PingContext(t.Context())
+	if err != nil {
+		t.Errorf("Ping() = %v", err)
+	}
+
+	err = database.Close()
+	if err != nil {
+		t.Errorf("Close() = %v", err)
 	}
 }
 
