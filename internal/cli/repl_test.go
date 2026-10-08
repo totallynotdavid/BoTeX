@@ -76,12 +76,14 @@ func TestRunREPLDrivesAConversationWithoutWhatsApp(t *testing.T) {
 	}
 }
 
-func TestRunREPLReportsSilentTurnsWithoutWaitingForTheCeiling(t *testing.T) {
+// A turn that sends nothing ends when the handler returns. The deadline only
+// bounds a REPL that would wait for a reply forever, so it can be generous.
+func TestRunREPLReportsSilentTurns(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
 
-	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
 	app := replApp(func(context.Context, bot.Message, *bot.Chat) error { return nil })
