@@ -40,16 +40,49 @@ func environment(t *testing.T, vars map[string]string) *config.Env {
 	})
 }
 
-func waitFor(t *testing.T, condition func() bool) {
+func waitForTurn(t *testing.T, client *fake.Client) {
 	t.Helper()
 
-	deadline := time.Now().Add(10 * time.Second)
-	for !condition() {
-		if time.Now().After(deadline) {
-			t.Fatal("condition not met within 10s")
-		}
+	err := client.WaitForWork(t.Context())
+	if err != nil {
+		t.Fatalf("WaitForWork() = %v", err)
+	}
+}
 
-		time.Sleep(5 * time.Millisecond)
+func stopRun(t *testing.T, stop context.CancelFunc, done <-chan error) {
+	t.Helper()
+
+	stop()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("Run() = %v, want context.Canceled", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return")
+	}
+}
+
+func assertOfflineConversation(t *testing.T, client *fake.Client) {
+	t.Helper()
+
+	sent := client.Sent()
+	if !strings.Contains(sent[0].Text, "Tinta") {
+		t.Errorf("welcome = %q, want Tinta introduction", sent[0].Text)
+	}
+
+	if !strings.Contains(sent[1].Text, "Available Commands") {
+		t.Errorf("help = %q, want command menu", sent[1].Text)
+	}
+
+	if sent[2].Image == nil || sent[2].Image.MIME != "image/png" {
+		t.Errorf("rendered reply = %+v, want a PNG image", sent[2])
+	}
+
+	got := client.Reactions()
+	if len(got) != 3 || got[0].Emoji != "👋" || got[1].Emoji != "✅" || got[2].Emoji != "✅" {
+		t.Errorf("reactions = %+v, want welcome, success, success", got)
 	}
 }
 
@@ -64,7 +97,7 @@ func TestRunAnswersSeededOwnerInDirectChatsAndGroups(t *testing.T) {
 	done := make(chan error, 1)
 
 	go func() {
-		done <- latexcmd.Run(ctx, env, slog.New(slog.DiscardHandler), func(context.Context, *sql.DB, *slog.Logger) (bot.Client, error) {
+		done <- latexcmd.Run(ctx, env, slog.New(slog.DiscardHandler), func(context.Context, *sql.DB, *slog.Logger) (bot.Transport, error) {
 			return client, nil
 		})
 	}()
@@ -75,11 +108,11 @@ func TestRunAnswersSeededOwnerInDirectChatsAndGroups(t *testing.T) {
 	}
 
 	client.Deliver(bot.Message{Sender: owner, Text: help})
-	waitFor(t, func() bool { return len(client.Sent()) == 1 })
+	waitForTurn(t, client)
 
 	// Groups reach the router, which refuses one nobody registered.
 	client.Deliver(bot.Message{Sender: owner, Chat: group, Group: true, Text: help})
-	waitFor(t, func() bool { return len(client.Sent()) == 2 })
+	waitForTurn(t, client)
 
 	sent := client.Sent()
 	if sent[0].To != owner {
@@ -88,6 +121,16 @@ func TestRunAnswersSeededOwnerInDirectChatsAndGroups(t *testing.T) {
 
 	if sent[1].To != group {
 		t.Errorf("group notice went to %q, want the group", sent[1].To)
+	}
+
+	client.Deliver(bot.Message{Sender: owner, Chat: group, Group: true, Text: "hola"})
+
+	beforeSent := len(client.Sent())
+	beforeReactions := len(client.Reactions())
+	waitForTurn(t, client)
+
+	if len(client.Sent()) != beforeSent || len(client.Reactions()) != beforeReactions {
+		t.Errorf("unauthorized group greeting activity: sent=%d reactions=%d, want sent=%d reactions=%d", len(client.Sent()), len(client.Reactions()), beforeSent, beforeReactions)
 	}
 
 	stop()
@@ -103,6 +146,43 @@ func TestRunAnswersSeededOwnerInDirectChatsAndGroups(t *testing.T) {
 	}
 }
 
+func TestRunDrivesAnOfflineConversationThroughWelcomeMenuAndImage(t *testing.T) {
+	t.Parallel()
+
+	ctx, stop := context.WithCancel(t.Context())
+	defer stop()
+
+	client := fake.New()
+
+	env := environment(t, map[string]string{config.KeyOwners: string(owner)})
+
+	done := make(chan error, 1)
+
+	go func() {
+		done <- latexcmd.Run(ctx, env, slog.New(slog.DiscardHandler), func(context.Context, *sql.DB, *slog.Logger) (bot.Transport, error) {
+			return client, nil
+		})
+	}()
+
+	err := client.WaitConnected(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client.Deliver(bot.Message{Sender: owner, Text: "hola"})
+
+	waitForTurn(t, client)
+	client.Deliver(bot.Message{Sender: owner, Text: "!help"})
+
+	waitForTurn(t, client)
+	client.Deliver(bot.Message{Sender: owner, Text: `!latex \frac{a}{b}`})
+
+	waitForTurn(t, client)
+
+	assertOfflineConversation(t, client)
+	stopRun(t, stop, done)
+}
+
 func TestRunAllowsFiveRequestsAMinute(t *testing.T) {
 	t.Parallel()
 
@@ -116,7 +196,7 @@ func TestRunAllowsFiveRequestsAMinute(t *testing.T) {
 	done := make(chan error, 1)
 
 	go func() {
-		done <- latexcmd.Run(ctx, env, slog.New(slog.DiscardHandler), func(context.Context, *sql.DB, *slog.Logger) (bot.Client, error) {
+		done <- latexcmd.Run(ctx, env, slog.New(slog.DiscardHandler), func(context.Context, *sql.DB, *slog.Logger) (bot.Transport, error) {
 			return client, nil
 		})
 	}()
@@ -126,14 +206,14 @@ func TestRunAllowsFiveRequestsAMinute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for i := range allowed {
+	for range allowed {
 		client.Deliver(bot.Message{Sender: owner, Text: help})
-		waitFor(t, func() bool { return len(client.Sent()) == i+1 })
+		waitForTurn(t, client)
 	}
 
 	limited := client.Deliver(bot.Message{Sender: owner, Text: help})
 
-	waitFor(t, func() bool { return len(client.Sent()) == allowed+1 })
+	waitForTurn(t, client)
 	stop()
 
 	select {

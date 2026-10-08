@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -43,14 +44,19 @@ func botCommand() cli.Command {
 func configure(env *config.Env) cli.Build {
 	cfg := latex.ConfigFromEnv(env)
 
-	return func(_ context.Context, _ *sql.DB, users *auth.Service, _ *slog.Logger) (cli.Built, error) {
+	return func(ctx context.Context, database *sql.DB, users *auth.Service, _ *slog.Logger) (cli.Built, error) {
 		renderer, err := latex.New(cfg)
 		if err != nil {
 			return cli.Built{}, fmt.Errorf("set up latex: %w", err)
 		}
 
+		app, err := latex.NewApp(ctx, command.NewRouter("!", users, renderer), users, database)
+		if err != nil {
+			return cli.Built{}, fmt.Errorf("set up latex conversation: %w", errors.Join(err, renderer.Close()))
+		}
+
 		return cli.Built{
-			App:    command.NewRouter("!", users, renderer),
+			App:    app,
 			Groups: true,
 			Close:  renderer.Close,
 		}, nil
