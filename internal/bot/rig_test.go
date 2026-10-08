@@ -130,12 +130,12 @@ type rig struct {
 func start(t *testing.T, app bot.App, opts bot.Options) *rig {
 	t.Helper()
 
-	return startWrapped(t, app, opts, func(client *fake.Client) bot.Client { return client })
+	return startWrapped(t, app, opts, func(client *fake.Client) bot.Transport { return client })
 }
 
 // startWrapped is start with the Bot talking to wrap(client), so a test can
 // change how the connection behaves.
-func startWrapped(t *testing.T, app bot.App, opts bot.Options, wrap func(*fake.Client) bot.Client) *rig {
+func startWrapped(t *testing.T, app bot.App, opts bot.Options, wrap func(*fake.Client) bot.Transport) *rig {
 	t.Helper()
 
 	env := &rig{client: fake.New(), rec: &recorder{}, logs: &logs{}, stopped: make(chan struct{})}

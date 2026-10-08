@@ -1,4 +1,4 @@
-// Package whatsapp implements bot.Client over whatsmeow. It is the only
+// Package whatsapp implements bot.Transport over whatsmeow. It is the only
 // package that imports whatsmeow.
 package whatsapp
 
@@ -19,10 +19,10 @@ import (
 	"github.com/totallynotdavid/botkit/internal/bot"
 )
 
-// ErrForeignMedia is returned by Download for media another Client produced.
+// ErrForeignMedia is returned by Download for media another Transport produced.
 var ErrForeignMedia = errors.New("media did not come from this client")
 
-var _ bot.Client = (*Client)(nil)
+var _ bot.Transport = (*Client)(nil)
 
 // Client is a WhatsApp session whose keys live in the bot's SQLite database.
 type Client struct {

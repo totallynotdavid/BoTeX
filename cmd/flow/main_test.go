@@ -47,12 +47,12 @@ func environment(t *testing.T, vars map[string]string) *config.Env {
 	})
 }
 
-func using(client bot.Client) cli.OpenClient {
-	return func(context.Context, *sql.DB, *slog.Logger) (bot.Client, error) { return client, nil }
+func using(client bot.Transport) cli.OpenClient {
+	return func(context.Context, *sql.DB, *slog.Logger) (bot.Transport, error) { return client, nil }
 }
 
 // run starts the bot and returns what Run returned once it stops.
-func run(ctx context.Context, env *config.Env, client bot.Client) <-chan error {
+func run(ctx context.Context, env *config.Env, client bot.Transport) <-chan error {
 	done := make(chan error, 1)
 
 	go func() { done <- flowcmd.Run(ctx, env, slog.New(slog.DiscardHandler), using(client)) }()

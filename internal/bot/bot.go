@@ -75,15 +75,16 @@ type Options struct {
 	MaxInFlight int
 }
 
-// Bot delivers the messages a Client receives to an App.
+// Bot delivers the messages a Transport receives to an App.
 type Bot struct {
-	client Client
-	app    App
-	log    *slog.Logger
-	opts   Options
-	rec    Recorder
-	grace  time.Duration
-	slots  chan struct{}
+	client  Transport
+	tracker WorkTracker
+	app     App
+	log     *slog.Logger
+	opts    Options
+	rec     Recorder
+	grace   time.Duration
+	slots   chan struct{}
 	// refusals holds one token per running reply to a refused message. A
 	// refusal that finds it full is dropped without a reply.
 	refusals chan struct{}
@@ -104,7 +105,7 @@ type Bot struct {
 
 // New returns a Bot that gives the messages client receives to app. Run starts
 // it.
-func New(client Client, app App, log *slog.Logger, opts Options) *Bot {
+func New(client Transport, app App, log *slog.Logger, opts Options) *Bot {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -118,14 +119,20 @@ func New(client Client, app App, log *slog.Logger, opts Options) *Bot {
 		opts.MaxInFlight = DefaultMaxInFlight
 	}
 
+	var tracker WorkTracker
+	if candidate, ok := client.(WorkTracker); ok {
+		tracker = candidate
+	}
+
 	return &Bot{
-		client: client,
-		app:    app,
-		log:    log,
-		opts:   opts,
-		rec:    rec,
-		grace:  shutdownGrace,
-		slots:  make(chan struct{}, opts.MaxInFlight),
+		client:  client,
+		tracker: tracker,
+		app:     app,
+		log:     log,
+		opts:    opts,
+		rec:     rec,
+		grace:   shutdownGrace,
+		slots:   make(chan struct{}, opts.MaxInFlight),
 
 		refusals: make(chan struct{}, refusalSlots),
 	}
@@ -216,9 +223,11 @@ func (b *Bot) onEvent(evt Event) {
 // that talks to WhatsApp runs on a handler goroutine.
 func (b *Bot) onMessage(msg Message) {
 	b.rec.Record(b.ctx, "message_received", messageAttrs(msg)...)
+	b.beginWork()
 
 	reason := b.filter(msg)
 	if reason != "" {
+		b.endWork()
 		b.drop(msg, reason)
 
 		return
@@ -230,7 +239,14 @@ func (b *Bot) onMessage(msg Message) {
 		result := b.opts.Limiter.Check(string(msg.User))
 		if !result.Allowed {
 			b.drop(msg, dropRateLimited)
-			b.refuse(func(ctx context.Context) { b.rateLimited(ctx, chat, result) })
+
+			if !b.refuse(func(ctx context.Context) {
+				defer b.endWork()
+
+				b.rateLimited(ctx, chat, result)
+			}) {
+				b.endWork()
+			}
 
 			return
 		}
@@ -240,17 +256,26 @@ func (b *Bot) onMessage(msg Message) {
 	case b.slots <- struct{}{}:
 	default:
 		b.drop(msg, dropBusy)
-		b.refuse(func(ctx context.Context) { b.busy(ctx, chat) })
+
+		if !b.refuse(func(ctx context.Context) {
+			defer b.endWork()
+
+			b.busy(ctx, chat)
+		}) {
+			b.endWork()
+		}
 
 		return
 	}
 
 	started := b.spawn(func(ctx context.Context) {
+		defer b.endWork()
 		defer func() { <-b.slots }()
 
 		b.handle(ctx, chat, msg)
 	})
 	if !started {
+		b.endWork()
 		<-b.slots
 
 		b.drop(msg, dropSessionEnded)
@@ -300,11 +325,11 @@ func (b *Bot) spawn(work func(ctx context.Context)) bool {
 // refuse runs a reply to a refused message on its own goroutine. Refusals have
 // their own bound, apart from slots, so a flood cannot take a place from real
 // work. When the bound is full, or the runtime has stopped, there is no reply.
-func (b *Bot) refuse(reply func(ctx context.Context)) {
+func (b *Bot) refuse(reply func(ctx context.Context)) bool {
 	select {
 	case b.refusals <- struct{}{}:
 	default:
-		return
+		return false
 	}
 
 	started := b.spawn(func(ctx context.Context) {
@@ -314,6 +339,20 @@ func (b *Bot) refuse(reply func(ctx context.Context)) {
 	})
 	if !started {
 		<-b.refusals
+	}
+
+	return started
+}
+
+func (b *Bot) beginWork() {
+	if b.tracker != nil {
+		b.tracker.BeginWork()
+	}
+}
+
+func (b *Bot) endWork() {
+	if b.tracker != nil {
+		b.tracker.EndWork()
 	}
 }
 

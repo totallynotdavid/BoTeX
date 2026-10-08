@@ -15,10 +15,10 @@ type App interface {
 }
 
 // Chat is what an App uses to answer the message it is handling. The runtime
-// builds one per message around the Client it was given. Once the session has
+// builds one per message around the Transport it was given. Once the session has
 // ended, every method fails with the session's *SessionEndedError.
 type Chat struct {
-	client Client
+	client Transport
 	msg    Message
 	// ended returns the session's end, or nil while it lasts.
 	ended func() *SessionEndedError

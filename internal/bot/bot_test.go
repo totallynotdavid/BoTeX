@@ -237,10 +237,10 @@ func TestMaxInFlightHolds(t *testing.T) {
 	}
 }
 
-// blockedReact is a Client whose React holds until release is closed, and
+// blockedReact is a Transport whose React holds until release is closed, and
 // which counts how many Reacts are held at once.
 type blockedReact struct {
-	bot.Client
+	bot.Transport
 
 	release chan struct{}
 	load    gauge
@@ -252,7 +252,12 @@ func (c *blockedReact) React(ctx context.Context, msg bot.Message, emoji string)
 
 	<-c.release
 
-	return c.Client.React(ctx, msg, emoji) //nolint:wrapcheck // a test double passes the fake's result through.
+	err := c.Transport.React(ctx, msg, emoji)
+	if err != nil {
+		return fmt.Errorf("blocked reaction: %w", err)
+	}
+
+	return nil
 }
 
 func TestRefusalRepliesAreBounded(t *testing.T) {
@@ -301,8 +306,8 @@ func TestRefusalRepliesAreBounded(t *testing.T) {
 
 			var held *blockedReact
 
-			env := startWrapped(t, app, scenario.opts, func(client *fake.Client) bot.Client {
-				held = &blockedReact{Client: client, release: release}
+			env := startWrapped(t, app, scenario.opts, func(client *fake.Client) bot.Transport {
+				held = &blockedReact{Transport: client, release: release}
 
 				return held
 			})

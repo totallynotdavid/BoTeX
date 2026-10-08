@@ -2,7 +2,7 @@ package bot
 
 import "fmt"
 
-// Event is something a Client reports to the runtime. The set is closed:
+// Event is something a Transport reports to the runtime. The set is closed:
 // MessageReceived, Connected, Disconnected and SessionEnded.
 type Event interface {
 	event()
@@ -16,7 +16,7 @@ type MessageReceived struct {
 // Connected reports that the session is authenticated and receiving.
 type Connected struct{}
 
-// Disconnected reports a dropped connection that the Client retries on its
+// Disconnected reports a dropped connection that the Transport retries on its
 // own.
 type Disconnected struct{}
 

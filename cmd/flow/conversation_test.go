@@ -320,7 +320,7 @@ func (s script) play(t *testing.T) []string {
 	done := make(chan error, 1)
 
 	go func() {
-		open := func(_ context.Context, database *sql.DB, _ *slog.Logger) (bot.Client, error) {
+		open := func(_ context.Context, database *sql.DB, _ *slog.Logger) (bot.Transport, error) {
 			databases <- database
 
 			return client, nil

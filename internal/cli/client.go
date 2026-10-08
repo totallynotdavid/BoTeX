@@ -10,10 +10,10 @@ import (
 )
 
 // OpenClient returns the WhatsApp connection over database.
-type OpenClient func(ctx context.Context, database *sql.DB, log *slog.Logger) (bot.Client, error)
+type OpenClient func(ctx context.Context, database *sql.DB, log *slog.Logger) (bot.Transport, error)
 
 //nolint:ireturn // OpenClient's contract is the interface, so tests can supply a fake.
-func openWhatsApp(ctx context.Context, database *sql.DB, log *slog.Logger) (bot.Client, error) {
+func openWhatsApp(ctx context.Context, database *sql.DB, log *slog.Logger) (bot.Transport, error) {
 	client, err := whatsapp.Open(ctx, database, log)
 	if err != nil {
 		return nil, err //nolint:wrapcheck // run adds the context.

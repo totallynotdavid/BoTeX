@@ -9,9 +9,10 @@ import (
 // been ended by Disconnect.
 var ErrAlreadyConnected = errors.New("already connected")
 
-// Client is a WhatsApp connection. internal/whatsapp implements it over
-// whatsmeow and internal/whatsapp/fake implements it in memory for tests.
-type Client interface {
+// Transport is the boundary between the bot runtime and a messaging service.
+// internal/whatsapp implements it over whatsmeow and internal/whatsapp/fake
+// implements it in memory for tests and the offline REPL.
+type Transport interface {
 	// Connect starts the session and reports every event to handle until
 	// Disconnect. ctx bounds only the connection attempt; the session runs
 	// until Disconnect. It returns a *SessionEndedError with Reason NotPaired
@@ -27,4 +28,12 @@ type Client interface {
 	// React sets emoji as the bot's reaction to msg. An empty emoji removes it.
 	React(ctx context.Context, msg Message, emoji string) error
 	Download(ctx context.Context, media *Media) ([]byte, error)
+}
+
+// WorkTracker is an optional transport hook for deterministic clients. The
+// runtime calls it around accepted message work so an offline runner can tell
+// that a silent handler has finished without guessing from elapsed time.
+type WorkTracker interface {
+	BeginWork()
+	EndWork()
 }

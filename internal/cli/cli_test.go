@@ -31,7 +31,7 @@ var (
 	errBuild = errors.New("cannot build the app")
 )
 
-type opener = func(context.Context, *sql.DB, *slog.Logger) (bot.Client, error)
+type opener = func(context.Context, *sql.DB, *slog.Logger) (bot.Transport, error)
 
 // spy is a bot that reports the sender of every message it handles.
 type spy struct {
@@ -81,8 +81,8 @@ func env(t *testing.T, vars map[string]string) *config.Env {
 	})
 }
 
-func using(client bot.Client) opener {
-	return func(context.Context, *sql.DB, *slog.Logger) (bot.Client, error) { return client, nil }
+func using(client bot.Transport) opener {
+	return func(context.Context, *sql.DB, *slog.Logger) (bot.Transport, error) { return client, nil }
 }
 
 // started runs the bot in the background and returns what Run returned once it
@@ -232,7 +232,7 @@ func TestRunWhatsappFailureExits1AndClosesTheBot(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	open := func(context.Context, *sql.DB, *slog.Logger) (bot.Client, error) { return nil, errOpen }
+	open := func(context.Context, *sql.DB, *slog.Logger) (bot.Transport, error) { return nil, errOpen }
 
 	var closed atomic.Bool
 
@@ -296,7 +296,7 @@ func TestRunBadSettingsFailBeforeAnythingOpens(t *testing.T) {
 
 	var opened atomic.Bool
 
-	open := func(context.Context, *sql.DB, *slog.Logger) (bot.Client, error) {
+	open := func(context.Context, *sql.DB, *slog.Logger) (bot.Transport, error) {
 		opened.Store(true)
 
 		return fake.New(), nil

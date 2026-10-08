@@ -4,6 +4,8 @@
 //	<name> [run]          run the bot
 //	<name> pair [--phone +<digits>]
 //	                      link the bot to a WhatsApp account
+//	<name> --repl [--owner]
+//	                      chat with the bot through an in-memory transport
 //
 // The exit status is 0 after SIGINT or SIGTERM, 78 when the WhatsApp session
 // ended and needs the operator, 1 for any other failure and 2 for bad usage.
@@ -112,6 +114,10 @@ func Main(cmd Command) {
 
 // execute runs the subcommand args name and returns the exit status.
 func execute(ctx context.Context, cmd Command, args []string) int {
+	if len(args) > 0 && args[0] == "--repl" {
+		return replCommand(ctx, cmd, args[1:])
+	}
+
 	name, rest := "run", args
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		name, rest = args[0], args[1:]
@@ -127,6 +133,32 @@ func execute(ctx context.Context, cmd Command, args []string) int {
 
 		return ExitUsage
 	}
+}
+
+func replCommand(ctx context.Context, cmd Command, args []string) int {
+	flags := flag.NewFlagSet(cmd.Name+" --repl", flag.ContinueOnError)
+	owner := flags.Bool("owner", false, "run as the configured owner")
+
+	err := flags.Parse(args)
+	if err != nil || flags.NArg() > 0 {
+		return ExitUsage
+	}
+
+	cfg, log, err := setup(cmd)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, cmd.Name+" REPL:", err)
+
+		return ExitFailure
+	}
+
+	err = repl(ctx, cfg, log, os.Stdin, os.Stdout, replOptions{owner: *owner})
+	if err != nil {
+		log.ErrorContext(ctx, cmd.Name+" REPL failed", "error", err)
+
+		return ExitStatus(ctx, err)
+	}
+
+	return ExitOK
 }
 
 func runCommand(ctx context.Context, cmd Command, args []string) int {

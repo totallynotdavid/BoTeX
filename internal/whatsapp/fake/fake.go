@@ -1,4 +1,4 @@
-// Package fake is an in-memory bot.Client for tests. Tests deliver messages
+// Package fake is an in-memory bot.Transport for tests. Tests deliver messages
 // and session events by hand and read back what the bot sent; nothing reaches
 // the network.
 package fake
@@ -23,9 +23,14 @@ var (
 	// ErrForeignMedia is returned by Download for media whose Raw is not the
 	// []byte the fake expects.
 	ErrForeignMedia = errors.New("fake: media Raw is not []byte")
+	// ErrInvalidSettle rejects a non-positive quiescence window.
+	ErrInvalidSettle = errors.New("fake: settle window must be positive")
 )
 
-var _ bot.Client = (*Client)(nil)
+var (
+	_ bot.Transport   = (*Client)(nil)
+	_ bot.WorkTracker = (*Client)(nil)
+)
 
 // Sent is one message the bot sent. Exactly one of Text and Image is set.
 type Sent struct {
@@ -56,17 +61,30 @@ type Client struct {
 	sent      []Sent
 	reactions []Reaction
 	lastID    int
+	activity  chan struct{}
+	work      int
+	workDone  chan struct{}
 }
 
 // New returns a client paired as OwnJID.
 func New() *Client {
-	return &Client{paired: true, up: make(chan struct{}), dialUp: make(chan struct{})}
+	return newClient(true)
 }
 
 // NewUnpaired returns a client whose store holds no device, so Connect fails
 // with NotPaired.
 func NewUnpaired() *Client {
-	return &Client{up: make(chan struct{}), dialUp: make(chan struct{})}
+	return newClient(false)
+}
+
+func newClient(paired bool) *Client {
+	return &Client{
+		paired:   paired,
+		up:       make(chan struct{}),
+		dialUp:   make(chan struct{}),
+		activity: make(chan struct{}),
+		workDone: make(chan struct{}),
+	}
 }
 
 // StallConnect makes Connect block until its context is done and then return
@@ -267,6 +285,107 @@ func (c *Client) Reactions() []Reaction {
 	return append([]Reaction(nil), c.reactions...)
 }
 
+func (c *Client) WaitForActivity(ctx context.Context, sent, reactions int) error {
+	for {
+		c.mu.Lock()
+		if len(c.sent) > sent || len(c.reactions) > reactions {
+			c.mu.Unlock()
+
+			return nil
+		}
+
+		activity := c.activity
+		c.mu.Unlock()
+
+		select {
+		case <-activity:
+		case <-ctx.Done():
+			return fmt.Errorf("wait for fake activity: %w", ctx.Err())
+		}
+	}
+}
+
+func (c *Client) BeginWork() {
+	c.mu.Lock()
+	c.work++
+	c.mu.Unlock()
+}
+
+func (c *Client) EndWork() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.work == 0 {
+		return
+	}
+
+	c.work--
+	close(c.workDone)
+	c.workDone = make(chan struct{})
+}
+
+// WaitForWork waits until all handlers currently running have returned. Callers
+// must invoke it after Deliver so it observes that message's handlers.
+func (c *Client) WaitForWork(ctx context.Context) error {
+	for {
+		c.mu.Lock()
+		if c.work == 0 {
+			c.mu.Unlock()
+
+			return nil
+		}
+
+		done := c.workDone
+		c.mu.Unlock()
+
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return fmt.Errorf("wait for fake work: %w", ctx.Err())
+		}
+	}
+}
+
+// WaitForQuiescence waits for activity after the given counts and then for a
+// settle window with no new sends or reactions. The window restarts whenever
+// another reply is recorded, so callers observe a complete asynchronous turn.
+func (c *Client) WaitForQuiescence(ctx context.Context, sent, reactions int, settle time.Duration) error {
+	if settle <= 0 {
+		return ErrInvalidSettle
+	}
+
+	err := c.WaitForActivity(ctx, sent, reactions)
+	if err != nil {
+		return err
+	}
+
+	for {
+		c.mu.Lock()
+		currentSent := len(c.sent)
+		currentReactions := len(c.reactions)
+		activity := c.activity
+		c.mu.Unlock()
+
+		timer := time.NewTimer(settle)
+		select {
+		case <-activity:
+			if !timer.Stop() {
+				<-timer.C
+			}
+
+			continue
+		case <-timer.C:
+			c.mu.Lock()
+			unchanged := len(c.sent) == currentSent && len(c.reactions) == currentReactions
+			c.mu.Unlock()
+
+			if unchanged {
+				return nil
+			}
+		}
+	}
+}
+
 func (c *Client) record(add func()) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -280,6 +399,8 @@ func (c *Client) record(add func()) error {
 	}
 
 	add()
+	close(c.activity)
+	c.activity = make(chan struct{})
 
 	return nil
 }

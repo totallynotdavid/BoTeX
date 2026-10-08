@@ -1,5 +1,5 @@
 // Package bot is the runtime both bots share. It defines the messages and
-// events an app sees and the Client it needs from a WhatsApp connection, so
+// events an app sees and the Transport it needs from a WhatsApp connection, so
 // apps and their tests never depend on whatsmeow.
 package bot
 
@@ -43,12 +43,12 @@ const (
 )
 
 // Media describes an attachment. Its bytes are fetched on demand with
-// Client.Download.
+// Transport.Download.
 type Media struct {
 	Kind MediaKind
 	MIME string
-	// Raw belongs to the Client that produced the message. Pass the Media
-	// back to that Client's Download; other code must not read it.
+	// Pass Media back to the Transport that produced it. Other transports cannot
+	// download its Raw value.
 	Raw any
 }
 
