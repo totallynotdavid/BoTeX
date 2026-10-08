@@ -32,7 +32,14 @@ mise exec -- sqlite3 botkit.db \
   "INSERT INTO users (user_id, rank, registered_by) VALUES ('51999999999@s.whatsapp.net', 'user', 'operator'); INSERT INTO registered_groups (group_id, registered_by) VALUES ('120363000000000000@g.us', 'operator');"
 ```
 
-Set `active` to `0` on a row to deactivate it. The tables are owned by
+Set `active` to `0` on a row to deactivate it:
+
+```bash
+mise exec -- sqlite3 botkit.db \
+  "UPDATE users SET active = 0 WHERE user_id = '51999999999@s.whatsapp.net';"
+```
+
+`registered_groups` has the same column. The tables are owned by
 [`internal/auth`](../internal/auth).
 
 ## Commands
