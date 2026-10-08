@@ -37,6 +37,7 @@ func botCommand() cli.Command {
 			Commands:    []string{"help", "latex"},
 			Description: "Basic user access",
 		}},
+		Groups:    true,
 		Configure: configure,
 	}
 }
@@ -56,9 +57,8 @@ func configure(env *config.Env) cli.Build {
 		}
 
 		return cli.Built{
-			App:    app,
-			Groups: true,
-			Close:  renderer.Close,
+			App:   app,
+			Close: renderer.Close,
 		}, nil
 	}
 }

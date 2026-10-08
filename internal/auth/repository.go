@@ -80,8 +80,13 @@ func (r *Repository) FindUserIgnoringActive(ctx context.Context, userID string) 
 }
 
 func (r *Repository) CreateUser(ctx context.Context, userID, rank, registeredBy string) error {
-	query := `INSERT INTO users (user_id, rank, registered_by, active) 
-			  VALUES (?, ?, ?, 1)`
+	query := `INSERT INTO users (user_id, rank, registered_by, active)
+			  VALUES (?, ?, ?, 1)
+			  ON CONFLICT(user_id) DO UPDATE SET
+				rank = excluded.rank,
+				registered_by = excluded.registered_by,
+				registered_at = CURRENT_TIMESTAMP,
+				active = 1`
 
 	_, err := r.db.ExecContext(ctx, query, userID, rank, registeredBy)
 	if err != nil {
@@ -191,8 +196,12 @@ func (r *Repository) GetGroup(ctx context.Context, groupID string) (*Group, erro
 }
 
 func (r *Repository) CreateGroup(ctx context.Context, groupID, registeredBy string) error {
-	query := `INSERT INTO registered_groups (group_id, registered_by, active) 
-			  VALUES (?, ?, 1)`
+	query := `INSERT INTO registered_groups (group_id, registered_by, active)
+			  VALUES (?, ?, 1)
+			  ON CONFLICT(group_id) DO UPDATE SET
+				registered_by = excluded.registered_by,
+				registered_at = CURRENT_TIMESTAMP,
+				active = 1`
 
 	_, err := r.db.ExecContext(ctx, query, groupID, registeredBy)
 	if err != nil {
@@ -200,6 +209,100 @@ func (r *Repository) CreateGroup(ctx context.Context, groupID, registeredBy stri
 	}
 
 	return nil
+}
+
+// DeactivateUser marks an active user inactive. It returns ErrUserNotFound when
+// userID is not an active user.
+func (r *Repository) DeactivateUser(ctx context.Context, userID string) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE users SET active = 0 WHERE user_id = ? AND active = 1`, userID)
+	if err != nil {
+		return fmt.Errorf("failed to deactivate user: %w", err)
+	}
+
+	return requireChange(result, ErrUserNotFound)
+}
+
+// DeactivateGroup marks an active group inactive. It returns
+// ErrGroupNotRegistered when groupID is not an active group.
+func (r *Repository) DeactivateGroup(ctx context.Context, groupID string) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE registered_groups SET active = 0 WHERE group_id = ? AND active = 1`, groupID)
+	if err != nil {
+		return fmt.Errorf("failed to deactivate group: %w", err)
+	}
+
+	return requireChange(result, ErrGroupNotRegistered)
+}
+
+// requireChange returns missing when the statement changed no row.
+func requireChange(result sql.Result, missing error) error {
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to count changed rows: %w", err)
+	}
+
+	if changed == 0 {
+		return missing
+	}
+
+	return nil
+}
+
+func (r *Repository) ListUsers(ctx context.Context) (users []*User, err error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT user_id, rank, registered_at, COALESCE(registered_by, '')
+		FROM users WHERE active = 1 ORDER BY registered_at, user_id`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list users: %w", err)
+	}
+
+	defer func() { err = errors.Join(err, rows.Close()) }()
+
+	for rows.Next() {
+		var user User
+
+		scanErr := rows.Scan(&user.ID, &user.Rank, &user.RegisteredAt, &user.RegisteredBy)
+		if scanErr != nil {
+			return nil, fmt.Errorf("failed to scan user: %w", scanErr)
+		}
+
+		users = append(users, &user)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("error iterating users: %w", err)
+	}
+
+	return users, nil
+}
+
+func (r *Repository) ListGroups(ctx context.Context) (groups []*Group, err error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT group_id, registered_at, registered_by
+		FROM registered_groups WHERE active = 1 ORDER BY registered_at, group_id`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list groups: %w", err)
+	}
+
+	defer func() { err = errors.Join(err, rows.Close()) }()
+
+	for rows.Next() {
+		var group Group
+
+		scanErr := rows.Scan(&group.ID, &group.RegisteredAt, &group.RegisteredBy)
+		if scanErr != nil {
+			return nil, fmt.Errorf("failed to scan group: %w", scanErr)
+		}
+
+		groups = append(groups, &group)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return nil, fmt.Errorf("error iterating groups: %w", err)
+	}
+
+	return groups, nil
 }
 
 func (r *Repository) GroupExists(ctx context.Context, groupID string) (bool, error) {

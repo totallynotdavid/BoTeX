@@ -120,7 +120,7 @@ func runREPLSession(ctx context.Context, setup prepared, cfg settings, log *slog
 
 func startREPLRuntime(ctx context.Context, client *fake.Client, setup prepared, cfg settings, log *slog.Logger) <-chan error {
 	runtime := bot.New(client, setup.built.App, log, bot.Options{
-		Groups:      setup.built.Groups,
+		Groups:      cfg.groups,
 		OwnMessages: cfg.shared.OwnMessages,
 		AllowOnly:   toJIDs(cfg.shared.AllowOnly),
 		Limiter:     setup.limiter,

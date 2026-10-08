@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"log/slog"
 	"maps"
 	"path/filepath"
@@ -50,12 +51,12 @@ func (s *spy) Handle(_ context.Context, msg bot.Message, _ *bot.Chat) error {
 // closed.
 func spyCommand(app bot.App, groups bool, closed *atomic.Bool) cli.Command {
 	return cli.Command{
-		Name: "spy",
+		Name:   "spy",
+		Groups: groups,
 		Configure: func(*config.Env) cli.Build {
 			return func(context.Context, *sql.DB, *auth.Service, *slog.Logger) (cli.Built, error) {
 				return cli.Built{
-					App:    app,
-					Groups: groups,
+					App: app,
 					Close: func() error {
 						closed.Store(true)
 
@@ -405,7 +406,7 @@ func TestExecuteRejectsBadUsage(t *testing.T) {
 	t.Parallel()
 
 	for _, args := range [][]string{{"bogus"}, {"run", "extra"}, {"pair", "--nope"}} {
-		got := cli.Execute(t.Context(), idle(), args)
+		got := cli.Execute(t.Context(), idle(), args, io.Discard)
 		if got != cli.ExitUsage {
 			t.Errorf("Execute(%q) = %d, want %d", args, got, cli.ExitUsage)
 		}

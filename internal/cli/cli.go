@@ -6,6 +6,12 @@
 //	                      link the bot to a WhatsApp account
 //	<name> --repl [--owner]
 //	                      chat with the bot through an in-memory transport
+//	<name> user add <jid> [--rank <rank>] | remove <jid> | list
+//	                      register the users of a bot with ranks
+//	<name> group add <jid> | remove <jid> | list
+//	                      register the groups of a bot with groups
+//
+// A bot adds subcommands of its own with [Command.Subcommands].
 //
 // The exit status is 0 after SIGINT or SIGTERM, 78 when the WhatsApp session
 // ended and needs the operator, 1 for any other failure and 2 for bad usage.
@@ -16,9 +22,11 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -27,17 +35,26 @@ import (
 	"github.com/totallynotdavid/botkit/internal/config"
 )
 
+// runName is the subcommand a command line without one means.
+const runName = "run"
+
 // Command is what makes one binary its bot. Everything else, from the
 // subcommands to the store and the WhatsApp connection, is the same for all.
 type Command struct {
 	// Name is the binary's name, which its messages start with.
 	Name string
-	// Ranks are the ranks the bot's users hold besides owner.
+	// Ranks are the ranks the bot's users hold besides owner. A bot with ranks
+	// decides by rank what each user may run, and gains the user subcommands.
 	Ranks []auth.Rank
+	// Groups makes the bot answer messages sent in groups, and gains the group
+	// subcommands to register them.
+	Groups bool
 	// RateLimit is the bot's own default for the rate-limit settings, which the
 	// BOTKIT_RATE_LIMIT_* keys still override. The zero value keeps the shared
 	// default.
 	RateLimit config.RateLimit
+	// Subcommands are the bot's own tasks for the operator, beside run and pair.
+	Subcommands []Subcommand
 	// Configure reads the bot's own settings from env, together with the shared
 	// ones, so one error names every bad key before anything is opened. It
 	// returns the function that builds the bot once the store is open.
@@ -51,8 +68,6 @@ type Build func(ctx context.Context, database *sql.DB, users *auth.Service, log 
 // Built is what a bot supplies to run.
 type Built struct {
 	App bot.App
-	// Groups makes the bot answer messages sent in groups.
-	Groups bool
 	// Close releases what the app holds. Nil when it holds nothing.
 	Close func() error
 }
@@ -61,6 +76,7 @@ type Built struct {
 type settings struct {
 	shared config.Shared
 	ranks  []auth.Rank
+	groups bool
 	build  Build
 }
 
@@ -87,6 +103,7 @@ func read(cmd Command, env *config.Env) settings {
 	return settings{
 		shared: env.Shared(defaults),
 		ranks:  cmd.Ranks,
+		groups: cmd.Groups,
 		build:  cmd.Configure(env),
 	}
 }
@@ -106,33 +123,46 @@ func Describe(cmd Command) []config.Entry {
 // the bot on SIGINT and SIGTERM, and exits with the status of the subcommand.
 func Main(cmd Command) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	status := execute(ctx, cmd, os.Args[1:])
+	status := Execute(ctx, cmd, os.Args[1:], os.Stdout)
 
 	stop()
 	os.Exit(status)
 }
 
-// execute runs the subcommand args name and returns the exit status.
-func execute(ctx context.Context, cmd Command, args []string) int {
+// Execute runs the subcommand args name, as Main does for os.Args, and returns
+// the exit status. The result of an operator subcommand goes to out.
+func Execute(ctx context.Context, cmd Command, args []string, out io.Writer) int {
 	if len(args) > 0 && args[0] == "--repl" {
 		return replCommand(ctx, cmd, args[1:])
 	}
 
-	name, rest := "run", args
+	name, rest := runName, args
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		name, rest = args[0], args[1:]
 	}
 
 	switch name {
-	case "run":
+	case runName:
 		return runCommand(ctx, cmd, rest)
 	case "pair":
 		return pairCommand(ctx, cmd, rest)
-	default:
-		fmt.Fprintf(os.Stderr, "%s: unknown command %q; want run or pair\n", cmd.Name, name)
+	}
+
+	all := subcommands(cmd)
+
+	index := slices.IndexFunc(all, func(sub Subcommand) bool { return sub.Name == name })
+	if index < 0 {
+		names := []string{runName, "pair"}
+		for _, sub := range all {
+			names = append(names, sub.Name)
+		}
+
+		fmt.Fprintf(os.Stderr, "%s: unknown command %q; want one of %s\n", cmd.Name, name, strings.Join(names, ", "))
 
 		return ExitUsage
 	}
+
+	return subcommandCommand(ctx, cmd, all[index], rest, out)
 }
 
 func replCommand(ctx context.Context, cmd Command, args []string) int {
@@ -162,7 +192,7 @@ func replCommand(ctx context.Context, cmd Command, args []string) int {
 }
 
 func runCommand(ctx context.Context, cmd Command, args []string) int {
-	flags := flag.NewFlagSet(cmd.Name+" run", flag.ContinueOnError)
+	flags := flag.NewFlagSet(cmd.Name+" "+runName, flag.ContinueOnError)
 
 	err := flags.Parse(args)
 	if err != nil || flags.NArg() > 0 {

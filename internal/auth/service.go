@@ -4,7 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 )
+
+// groupServer is the server part of a group's JID.
+const groupServer = "@g.us"
 
 type Service struct {
 	repo *Repository
@@ -84,8 +89,16 @@ func (s *Service) Authorize(ctx context.Context, user, group, command string) (D
 	return Allowed, nil
 }
 
+// RegisterUser gives userID the rank rankName. registeredBy says who did it:
+// a JID or a label such as "cli". A user who was deactivated is registered
+// again with the new rank. One who is active fails with ErrUserExists.
 func (s *Service) RegisterUser(ctx context.Context, userID, rankName, registeredBy string) error {
-	err := ValidateRankName(rankName)
+	userID, err := ParseJID(userID)
+	if err != nil {
+		return err
+	}
+
+	err = ValidateRankName(rankName)
 	if err != nil {
 		return err
 	}
@@ -111,21 +124,21 @@ func (s *Service) RegisterUser(ctx context.Context, userID, rankName, registered
 	return s.repo.CreateUser(ctx, userID, rankName, registeredBy)
 }
 
+// RegisterGroup lets commands run in the group groupID, a JID ending in
+// "@g.us". registeredBy says who did it: a JID or a label such as "cli". A
+// group that was deactivated is registered again. One that is active fails
+// with ErrGroupExists.
 func (s *Service) RegisterGroup(ctx context.Context, groupID, registeredBy string) error {
-	if groupID == "" {
-		return ErrInvalidInput
-	}
-
-	exists, err := s.repo.UserExists(ctx, registeredBy)
+	groupID, err := ParseJID(groupID)
 	if err != nil {
 		return err
 	}
 
-	if !exists {
-		return ErrUserNotFound
+	if !strings.HasSuffix(groupID, groupServer) {
+		return fmt.Errorf("%w: %q is not a group, want a JID ending in %s", ErrInvalidJID, groupID, groupServer)
 	}
 
-	exists, err = s.repo.GroupExists(ctx, groupID)
+	exists, err := s.repo.GroupExists(ctx, groupID)
 	if err != nil {
 		return err
 	}
@@ -135,6 +148,29 @@ func (s *Service) RegisterGroup(ctx context.Context, groupID, registeredBy strin
 	}
 
 	return s.repo.CreateGroup(ctx, groupID, registeredBy)
+}
+
+// DeactivateUser stops userID from running commands. The row stays, so
+// SeedOwners leaves the user deactivated. It fails with ErrUserNotFound for a
+// user who is not active.
+func (s *Service) DeactivateUser(ctx context.Context, userID string) error {
+	return s.repo.DeactivateUser(ctx, userID)
+}
+
+// DeactivateGroup stops commands from running in groupID. It fails with
+// ErrGroupNotRegistered for a group that is not active.
+func (s *Service) DeactivateGroup(ctx context.Context, groupID string) error {
+	return s.repo.DeactivateGroup(ctx, groupID)
+}
+
+// ListUsers returns the active users, oldest registration first.
+func (s *Service) ListUsers(ctx context.Context) ([]*User, error) {
+	return s.repo.ListUsers(ctx)
+}
+
+// ListGroups returns the active groups, oldest registration first.
+func (s *Service) ListGroups(ctx context.Context) ([]*Group, error) {
+	return s.repo.ListGroups(ctx)
 }
 
 func (s *Service) GetUser(ctx context.Context, userID string) (*User, error) {

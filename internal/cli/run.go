@@ -108,7 +108,7 @@ func runBot(ctx context.Context, client bot.Transport, built Built, limiter *rat
 	}
 
 	runtime := bot.New(client, built.App, log, bot.Options{
-		Groups:      built.Groups,
+		Groups:      cfg.groups,
 		OwnMessages: cfg.shared.OwnMessages,
 		AllowOnly:   allowOnly,
 		Limiter:     limiter,

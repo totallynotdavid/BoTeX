@@ -8,29 +8,40 @@ import (
 
 var ErrInvalidJID = errors.New("invalid JID")
 
+// ParseJID checks one WhatsApp JID and returns it trimmed. It must be
+// user@server with no whitespace and no device part (":device" or ".device"
+// after the user), which is how message senders are keyed. Anything else fails
+// with ErrInvalidJID instead of naming a JID that can never match.
+func ParseJID(raw string) (string, error) {
+	entry := strings.TrimSpace(raw)
+
+	user, server, ok := strings.Cut(entry, "@")
+	if !ok || user == "" || server == "" ||
+		strings.ContainsAny(entry, " \t\n\r:") || strings.Contains(user, ".") || strings.Contains(server, "@") {
+		return "", fmt.Errorf("%w: %q", ErrInvalidJID, entry)
+	}
+
+	return entry, nil
+}
+
 // ParseJIDs parses a comma-separated list of WhatsApp JIDs, as used by
 // BOTKIT_OWNER_JIDS and BOTKIT_ALLOW_ONLY. Blank entries are skipped. Each
-// other entry must be user@server with no whitespace and no device part
-// (":device" or ".device" after the user), which is how message senders are
-// keyed. Anything else fails with ErrInvalidJID instead of listing a JID that
-// can never match.
+// other entry must satisfy ParseJID.
 func ParseJIDs(raw string) ([]string, error) {
-	var owners []string
+	var jids []string
 
 	for part := range strings.SplitSeq(raw, ",") {
-		entry := strings.TrimSpace(part)
-		if entry == "" {
+		if strings.TrimSpace(part) == "" {
 			continue
 		}
 
-		user, server, ok := strings.Cut(entry, "@")
-		if !ok || user == "" || server == "" ||
-			strings.ContainsAny(entry, " \t\n\r:") || strings.Contains(user, ".") || strings.Contains(server, "@") {
-			return nil, fmt.Errorf("%w: %q", ErrInvalidJID, entry)
+		jid, err := ParseJID(part)
+		if err != nil {
+			return nil, err
 		}
 
-		owners = append(owners, entry)
+		jids = append(jids, jid)
 	}
 
-	return owners, nil
+	return jids, nil
 }
