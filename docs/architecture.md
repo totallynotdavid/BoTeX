@@ -2,19 +2,14 @@
 
 botkit has two binaries and one shared runtime. A binary describes its bot. The
 runtime owns the WhatsApp connection, message filtering, concurrency, shutdown,
-and exit status.
+and exit status. This document maps the code. For what the bots do, read
+[the latex bot](latex-bot.md) and [the flow bot](flow-bot.md).
 
-```text
-cmd/latex ─┐
-           ├─ internal/cli ─ internal/bot ─ internal/whatsapp ─ WhatsApp
-cmd/flow  ─┘      │               │
-                  │               └─ internal/ratelimit
-                  ├─ internal/config
-                  ├─ internal/auth ─┐
-                  └─ internal/sqlite ┴─ SQLite
+The code, not this document, says which package imports which. Print each
+package with its imports:
 
-cmd/latex ─ internal/command ─ internal/latex ─ internal/typst
-cmd/flow  ─ internal/flow ─ internal/flow/fsm
+```bash
+mise exec -- go list -f '{{.ImportPath}}: {{join .Imports " "}}' ./...
 ```
 
 ## Packages
@@ -80,40 +75,54 @@ The flow bot defines no rank and does not call `internal/auth` to decide.
 message as one turn: [`Store.Turn`](../internal/flow/store.go) loads the user's
 state, runs the turn, and saves the state and history in one transaction. The
 app sends the replies after the save. The store is the only writer of flow state
-and history. Its per-user lock is in memory. The built-in flow persists the last
-choice and explicit follow-up consent, reacts only after a successful action,
-and exposes a rate-limited `FollowUp` method called by the production hourly
-scheduler.
+and history. Its per-user lock is in memory, which is why
+[one process runs on each database](running.md).
 
-### Flow state and concurrency
+### Flow state
 
-The complete `user_state` state is the tuple below; `conversation_history` is
-the append-only record of inbound and outbound text, including scheduler
-reminders.
+`user_state` holds one row per user. `conversation_history` is the append-only
+record of text in both directions, including reminders.
 
-| State                                                      | Meaning                                                   | Writers and authorized transitions                                                                                                                                                                                                                                                 |
-| ---------------------------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `current_node`                                             | Current FSM node                                          | An inbound `Store.Turn` may move it along a matching node/global transition, restart stale/unknown state at `start_node`, or leave it on fallback. The follow-up scheduler never changes it.                                                                                       |
-| `user_name`                                                | Name from profile or `save_user_name`                     | The inbound turn on a name transition sets, clears, or retains it. Scheduler turns retain it.                                                                                                                                                                                      |
-| `course_interest`, `selected_course_id`, `consulted_price` | Lead facts                                                | Only their named inbound actions set them; scheduler turns retain them.                                                                                                                                                                                                            |
-| `last_choice`                                              | Last guide choice                                         | An inbound choice action sets it. Scheduler turns read it for the reminder and never change it.                                                                                                                                                                                    |
-| `follow_up_opt_in`                                         | Explicit reminder consent                                 | An inbound `opt_in_follow_up` transition sets `true`; an inbound `opt_out_follow_up` transition sets `false`. The scheduler only reads it.                                                                                                                                         |
-| `last_follow_up`                                           | UTC timestamp of the current claim or successful reminder | The scheduler claims an eligible opted-in row by setting it to `now`; after `SendText` succeeds it remains the send attempt. A failed send releases the matching claim to `NULL`. Inbound turns never change it. An opt-out after claim does not cancel that already-claimed send. |
-| `voucher_path`, `requires_human_agent`                     | Voucher and hand-off flag                                 | Inbound actions update them; scheduler turns retain them.                                                                                                                                                                                                                          |
-| `last_updated`                                             | Last committed inbound turn                               | Every inbound `Store.Turn` writes it, including fallback and unsupported-media turns. Claim, release, and follow-up history writes preserve it, so a reminder cannot reset the 24-hour stale-conversation clock.                                                                   |
+| Column                                                     | Meaning                                       | Written by                                                                                                                              |
+| ---------------------------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `current_node`                                             | Current node of the flow                      | An inbound turn: a matching transition, a restart at `start_node`, or no change on a fallback.                                          |
+| `user_name`                                                | Name from the profile or `save_user_name`     | An inbound turn on a name transition: set, cleared, or kept.                                                                            |
+| `course_interest`, `selected_course_id`, `consulted_price` | Lead facts                                    | Only their named inbound actions.                                                                                                       |
+| `last_choice`                                              | Last choice in the guide                      | An inbound `remember_choice` action. The reminder reads it.                                                                             |
+| `follow_up_opt_in`                                         | Consent to reminders                          | An inbound `opt_in_follow_up` (true) or `opt_out_follow_up` (false). The scheduler only reads it.                                       |
+| `last_follow_up`                                           | UTC time of the latest claim or reminder sent | The scheduler. See [Reminders](#reminders). Inbound turns never change it.                                                              |
+| `voucher_path`, `requires_human_agent`                     | Latest voucher and the hand-off flag          | Inbound actions.                                                                                                                        |
+| `last_updated`                                             | Time of the last committed inbound turn       | Every inbound turn, including fallbacks and unsupported media. A reminder never changes it, so it cannot reset the 24-hour clock below. |
 
-Every state transition is serialized by the in-process per-user lock. Inbound
-turns commit state and their history rows together and update `last_updated`.
-For restart decisions, a claim in `last_follow_up` newer than `last_updated`
-also counts as recent activity: a reply to a reminder resumes the live flow, but
-a user returning after that reminder is stale starts at `start_node` again. The
-scheduler claims with a state-only write that preserves `last_updated`, sends
-outside the lock, then appends a successful reminder to history without touching
-state. The claim is the send attempt: if sending fails, it releases only the
-matching timestamp to `NULL`; if sending succeeds, the claim remains even when
-the history append fails, preserving at-most-once delivery. An inbound opt-out
-that happens after claim does not cancel the already-claimed send. The
-deployment must run one process per database; the lock is not cross-process.
+An inbound turn writes the row and appends to `conversation_history`. The
+scheduler changes one column, `last_follow_up`, when it claims a reminder and
+when it releases the claim ([Reminders](#reminders)). It never changes
+`current_node`, `user_name`, the lead facts, `last_choice`, the consent, the
+voucher or hand-off columns, or `last_updated`. After a send it only appends to
+`conversation_history`. The per-user lock serializes every write.
+
+A conversation is stale when the later of `last_updated` and `last_follow_up` is
+more than 24 hours old. A stale conversation restarts at `start_node`.
+
+A claim newer than `last_updated` counts as activity. A reply to a reminder
+therefore resumes the live flow. A user who returns after that day starts again.
+
+### Reminders
+
+[`App.FollowUp`](../internal/flow/app.go) sends one reminder to each user who
+has opted in and has had none for 24 hours. `runFollowUps` in
+[`internal/cli/run.go`](../internal/cli/run.go) calls it every hour while `run`
+is active. A reminder moves in three steps:
+
+1. **Claim.** Under the lock, the store sets `last_follow_up` to `now` for each
+   eligible user. The write leaves `last_updated` alone.
+2. **Send.** The app sends the text outside the lock. If the send fails, the
+   store clears `last_follow_up` for that claim, and a later check retries.
+3. **Record.** After a send that succeeds, the store appends the reminder to
+   `conversation_history`. If that append fails, the claim stays, so the user
+   gets the reminder at most once.
+
+A user who opts out after the claim still gets the reminder already claimed.
 
 ## Latex app
 
