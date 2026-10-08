@@ -36,6 +36,7 @@ func TestConfigFromEnvOverrides(t *testing.T) {
 	t.Parallel()
 
 	env := envOf(map[string]string{
+		latex.KeyTypst:        "/opt/typst/bin/typst",
 		latex.KeyMaxLength:    "200",
 		latex.KeyMaxImageSize: "1000000",
 		latex.KeyTimeout:      "3s",
@@ -44,6 +45,10 @@ func TestConfigFromEnvOverrides(t *testing.T) {
 	})
 
 	got := latex.ConfigFromEnv(env)
+
+	if got.Typst != "/opt/typst/bin/typst" {
+		t.Errorf("Typst = %q, want the configured path", got.Typst)
+	}
 
 	if got.MaxLength != 200 {
 		t.Errorf("MaxLength = %d, want 200", got.MaxLength)

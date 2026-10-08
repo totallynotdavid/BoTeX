@@ -94,6 +94,8 @@ var docs = []doc{
 	{config.KeyAllowOnly, "Comma-separated JIDs the bot answers. Messages from anyone else are ignored. " +
 		"Empty answers everyone. Useful to test a bot on a number others also message."},
 
+	{latex.KeyTypst, "The typst executable, as a path or a name looked up on PATH. Set the path of the " +
+		"binary itself where PATH holds only a version-manager shim, such as under a service manager."},
 	{latex.KeyMaxLength, "Most characters of LaTeX one message may hold."},
 	{latex.KeyMaxImageSize, "Largest PNG the bot sends, in bytes."},
 	{latex.KeyTimeout, "Longest a render may run, as a Go duration."},

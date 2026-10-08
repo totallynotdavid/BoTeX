@@ -8,6 +8,7 @@ import (
 
 // Environment keys the latex command reads. Byte sizes are plain integers.
 const (
+	KeyTypst        = "LATEX_TYPST_BIN"
 	KeyMaxLength    = "LATEX_MAX_LENGTH"
 	KeyMaxImageSize = "LATEX_MAX_IMAGE_BYTES"
 	KeyTimeout      = "LATEX_TIMEOUT"
@@ -26,6 +27,7 @@ func ConfigFromEnv(env *config.Env) Config {
 	limits.MaxBytes = int64(env.Int(KeyMaxImageSize, int(def.Limits.MaxBytes), 1))
 
 	return Config{
+		Typst:     env.String(KeyTypst, def.Typst),
 		MaxLength: env.Int(KeyMaxLength, def.MaxLength, 1),
 		Limits:    limits,
 	}

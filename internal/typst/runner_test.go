@@ -46,7 +46,7 @@ wide`
 func newRunner(t *testing.T, packagePath string, limits typst.Limits) *typst.Runner {
 	t.Helper()
 
-	runner, err := typst.New(packagePath, limits)
+	runner, err := typst.New("typst", packagePath, limits)
 	if err != nil {
 		t.Fatalf("typst.New: %v", err)
 	}
@@ -303,10 +303,57 @@ func TestNewRejectsInvalidLimits(t *testing.T) {
 	}
 
 	for name, edit := range fields {
-		_, err := typst.New("", withLimits(edit))
+		_, err := typst.New("typst", "", withLimits(edit))
 		if !errors.Is(err, typst.ErrInvalidLimits) {
 			t.Errorf("%s: err = %v, want ErrInvalidLimits", name, err)
 		}
+	}
+}
+
+func TestNewRendersWithATypstPathOffPATH(t *testing.T) {
+	typstPath, err := exec.LookPath("typst")
+	if err != nil {
+		t.Fatalf("typst is not on PATH: %v", err)
+	}
+
+	elsewhere := filepath.Join(t.TempDir(), "typst")
+
+	err = os.Symlink(typstPath, elsewhere)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Only prlimit stays reachable, so the render can use nothing but elsewhere.
+	prlimitPath, err := exec.LookPath("prlimit")
+	if err != nil {
+		t.Fatalf("prlimit is not on PATH: %v", err)
+	}
+
+	t.Setenv("PATH", filepath.Dir(prlimitPath))
+
+	runner, err := typst.New(elsewhere, "", typst.DefaultLimits())
+	if err != nil {
+		t.Fatalf("typst.New(%q): %v", elsewhere, err)
+	}
+
+	png, err := runner.Render(t.Context(), plainDocument, nil)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	if len(png) == 0 {
+		t.Fatal("Render returned no image")
+	}
+}
+
+func TestNewNamesAMissingTypstPath(t *testing.T) {
+	t.Parallel()
+
+	missing := filepath.Join(t.TempDir(), "typst")
+
+	_, err := typst.New(missing, "", typst.DefaultLimits())
+	if err == nil || !strings.Contains(err.Error(), missing) {
+		t.Fatalf("err = %v, want it to name %s", err, missing)
 	}
 }
 
@@ -336,7 +383,7 @@ func TestNewNamesMissingTools(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			t.Setenv("PATH", scenario.path)
 
-			_, err := typst.New("", typst.DefaultLimits())
+			_, err := typst.New("typst", "", typst.DefaultLimits())
 			if err == nil || !strings.Contains(err.Error(), scenario.want) {
 				t.Fatalf("err = %v, want it to name %s", err, scenario.want)
 			}

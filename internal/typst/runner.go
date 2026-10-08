@@ -126,16 +126,17 @@ type Runner struct {
 	prlimit     string
 }
 
-// New finds typst and prlimit (util-linux) on PATH. packagePath is a
-// directory of local typst packages, or empty for none. Packages are never
-// downloaded.
-func New(packagePath string, limits Limits) (*Runner, error) {
+// New finds prlimit (util-linux) on PATH and resolves bin to the typst
+// executable: a path is used as it is, a bare name is looked up on PATH.
+// packagePath is a directory of local typst packages, or empty for none.
+// Packages are never downloaded.
+func New(bin, packagePath string, limits Limits) (*Runner, error) {
 	err := limits.validate()
 	if err != nil {
 		return nil, err
 	}
 
-	typst, err := exec.LookPath("typst")
+	typst, err := exec.LookPath(bin)
 	if err != nil {
 		return nil, fmt.Errorf("typst is required: %w", err)
 	}
@@ -232,7 +233,7 @@ func (r *Runner) compile(ctx context.Context, dir, cacheDir string) error {
 
 	args = append(args, mainFile, outFile)
 
-	cmd := exec.CommandContext(ctx, r.prlimit, args...) // #nosec G204 -- both binaries come from PATH lookups and args are fixed.
+	cmd := exec.CommandContext(ctx, r.prlimit, args...) // #nosec G204 -- both binaries are resolved by New and args are fixed.
 	cmd.Dir = dir
 	// Typst has no offline flag but honours the proxy variables, so a dead
 	// proxy makes any package download fail at once.

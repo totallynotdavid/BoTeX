@@ -17,6 +17,7 @@ import (
 
 const (
 	defaultMaxLength = 1000
+	defaultTypst     = "typst"
 	// maxQuoteRunes bounds how much of mitex's message a reply quotes.
 	maxQuoteRunes = 400
 
@@ -51,6 +52,8 @@ var (
 
 // Config bounds what the command renders.
 type Config struct {
+	// Typst is the typst executable: a path, or a name looked up on PATH.
+	Typst string
 	// MaxLength is the most characters of LaTeX the command accepts.
 	MaxLength int
 	// Limits bound each render, including the byte cap of the image.
@@ -59,7 +62,7 @@ type Config struct {
 
 // DefaultConfig returns the limits a chat command runs under.
 func DefaultConfig() Config {
-	return Config{MaxLength: defaultMaxLength, Limits: typst.DefaultLimits()}
+	return Config{Typst: defaultTypst, MaxLength: defaultMaxLength, Limits: typst.DefaultLimits()}
 }
 
 // Command renders "!latex <code>" to an image.
@@ -72,7 +75,7 @@ type Command struct {
 var _ command.Command = (*Command)(nil)
 
 // New extracts the vendored mitex and returns a Command that renders with
-// typst from PATH. Close it to remove the extracted files.
+// config.Typst. Close it to remove the extracted files.
 func New(config Config) (*Command, error) {
 	if config.MaxLength <= 0 {
 		return nil, fmt.Errorf("%w: max length %d", ErrInvalidConfig, config.MaxLength)
@@ -83,7 +86,7 @@ func New(config Config) (*Command, error) {
 		return nil, err
 	}
 
-	runner, err := typst.New(packages, config.Limits)
+	runner, err := typst.New(config.Typst, packages, config.Limits)
 	if err != nil {
 		return nil, errors.Join(err, cleanup())
 	}
